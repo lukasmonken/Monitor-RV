@@ -1,0 +1,21 @@
+# ===================================================================
+# ESTE REPOSITÓRIO É PÚBLICO (o GitHub Pages grátis exige repo público).
+# Por isso NADA sensível pode ser versionado aqui.
+# As carteiras e a senha ficam em "secrets" do GitHub, não em arquivos.
+# ===================================================================
+
+# Carteiras (os ativos recomendados) — vão para o secret MONITOR_CARTEIRAS.
+carteiras/
+carteiras.local.txt
+
+# Senha — vai para o secret MONITOR_SENHA.
+senha.local
+
+# PDFs de origem das carteiras (preço justo, recomendação).
+pdfs/
+
+# Lixo comum
+__pycache__/
+*.pyc
+.DS_Store
+.claude/

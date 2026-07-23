@@ -1,0 +1,59 @@
+name: Atualizar monitor de carteiras
+
+# Quando rodar:
+on:
+  schedule:
+    # A cada 15 minutos, das 13h às 20h UTC (10h às 17h45 de Brasília), seg-sex.
+    # Cobre o pregão da B3 + início do after-market. Fora disso não roda (economia).
+    # Obs.: o GitHub pode atrasar execuções agendadas em horários de pico — o
+    # intervalo real fica em ~15-20 min. É o normal do plano gratuito.
+    - cron: "*/15 13-20 * * 1-5"
+  workflow_dispatch: {}   # botão para rodar manualmente quando quiser
+
+# O robô precisa gravar o dados.enc.js atualizado de volta no repositório.
+permissions:
+  contents: write
+
+# Evita duas execuções ao mesmo tempo (uma agendada + uma manual, por ex.).
+concurrency:
+  group: atualizar-monitor
+  cancel-in-progress: false
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Rodar o atualizador (consulta o Yahoo e gera dados.enc.js)
+        env:
+          # Login/senha que destravam a página. Defina estes secrets em
+          # Settings > Secrets and variables > Actions. Se não definir, o
+          # script usa o padrão que está no próprio atualizar.py.
+          MONITOR_USUARIO:   ${{ secrets.MONITOR_USUARIO }}
+          MONITOR_SENHA:     ${{ secrets.MONITOR_SENHA }}
+          # As carteiras (ativos recomendados) NÃO ficam no repositório público:
+          # vêm deste secret. Formato: blocos "### Nome" + CSV.
+          MONITOR_CARTEIRAS: ${{ secrets.MONITOR_CARTEIRAS }}
+        run: python atualizar.py
+
+      - name: Publicar os dados atualizados
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "github-actions@github.com"
+          git add docs/dados.enc.js .datahash
+          if git diff --staged --quiet; then
+            echo "Nenhuma mudança nos dados agora."
+          else
+            git commit -m "Atualiza cotações ($(date -u +'%d/%m %H:%M') UTC)"
+            git push
+          fi

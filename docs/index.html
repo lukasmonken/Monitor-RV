@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de Carteiras VAROS Academy Renda Variável</title>
+<link rel="stylesheet" href="assets/instrument-sans.css">
+<style>
+  :root{
+    --bg:#000000; --panel:#131313; --panel2:#1c1c1c; --panel3:#242424;
+    --border:#2b2b2b;
+    --txt:#E2E5EB; --axis:#C6CAD2; --muted:#878D96;
+    --accent:#12D8B2; --accent-d:#239B84; --teal-dk:#296055;
+    --up:#43AF43; --up-bright:#4FE04F;
+    --down:#E5484D;
+    --up-soft:rgba(67,175,67,.15); --down-soft:rgba(229,72,77,.15);
+    --hl:rgba(18,216,178,.09);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:'Instrument Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1240px; margin:0 auto; padding:26px 20px 60px}
+
+  /* ---------- LOGIN ---------- */
+  #login{
+    position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(1200px 600px at 50% -10%, #0e1a17 0%, #000 60%);
+    padding:20px;
+  }
+  .card{
+    width:100%; max-width:360px; background:var(--panel); border:1px solid var(--border);
+    border-radius:16px; padding:30px 26px; box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .card .mark{font-size:22px; font-weight:600; letter-spacing:.2px; margin:0 0 2px}
+  .card .mark .dot{color:var(--accent)}
+  .card .tag{color:var(--muted); font-size:12.5px; margin-bottom:22px}
+  .card label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin:0 0 6px}
+  .card input{
+    width:100%; font-family:inherit; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--border); border-radius:10px; padding:11px 12px;
+    font-size:14px; outline:none; margin-bottom:15px;
+  }
+  .card input:focus{border-color:var(--accent)}
+  .card button{
+    width:100%; font-family:inherit; font-size:14px; font-weight:600; cursor:pointer;
+    background:var(--accent); color:#08211b; border:0; border-radius:10px; padding:12px;
+    margin-top:4px;
+  }
+  .card button:hover{background:#15e6bd}
+  .card button:disabled{opacity:.6; cursor:default}
+  .card .erro{color:var(--down); font-size:12.5px; min-height:17px; margin-top:12px; text-align:center}
+  .card .foot{color:var(--muted); font-size:11px; text-align:center; margin-top:16px; line-height:1.5}
+
+  /* ---------- APP ---------- */
+  #app{display:none}
+  header{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:22px}
+  h1{font-size:23px; font-weight:600; margin:0; letter-spacing:.2px}
+  h1 .dot{color:var(--accent)}
+  h1 .b3{color:var(--muted); font-weight:400}
+  .sub{color:var(--muted); font-size:12.5px; margin-top:5px}
+  .badge{display:inline-block; padding:3px 10px; border:1px solid var(--border); border-radius:20px; font-size:11px; color:var(--axis); background:var(--panel)}
+  .badge.sair{cursor:pointer; margin-left:8px}
+  .badge.sair:hover{border-color:var(--down); color:var(--down)}
+
+  .controls{
+    display:flex; flex-wrap:wrap; gap:14px 22px; align-items:flex-end;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:16px 18px; margin-bottom:18px;
+  }
+  .field{display:flex; flex-direction:column; gap:6px}
+  .field label{font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted)}
+  select{
+    font-family:inherit; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--border); border-radius:9px; padding:9px 11px;
+    font-size:13.5px; outline:none; min-width:200px;
+  }
+  select:focus{border-color:var(--accent)}
+  select:hover{border-color:#3a3a3a}
+  .segmented{display:inline-flex; background:var(--panel2); border:1px solid var(--border); border-radius:9px; overflow:hidden}
+  .segmented button{
+    font-family:inherit; background:transparent; color:var(--axis); border:0;
+    padding:9px 13px; font-size:13px; cursor:pointer; border-right:1px solid var(--border);
+  }
+  .segmented button:last-child{border-right:0}
+  .segmented button.on{background:var(--accent); color:#08211b; font-weight:600}
+  .segmented button:hover:not(.on){color:var(--txt); background:var(--panel3)}
+  /* Indicadores macro (DI/CDI e IPCA) no topo, à direita dos toggles. */
+  .macro{display:flex; gap:22px; align-items:flex-end; margin-left:auto; padding-left:10px}
+  .macro .m{text-align:right; line-height:1.15}
+  .macro .mlab{font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:3px}
+  .macro .mval{font-size:16px; font-weight:700; color:var(--txt); font-variant-numeric:tabular-nums}
+
+  /* ---------- HOME: grade de carteiras ---------- */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr)); gap:16px}
+  .cart{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:18px 18px 16px; cursor:pointer; transition:border-color .12s, transform .12s;
+  }
+  .cart:hover{border-color:var(--accent-d); transform:translateY(-2px)}
+  .cart .top{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:12px}
+  .cart .nome{font-size:16px; font-weight:600; color:var(--txt)}
+  .cart .n{color:var(--muted); font-size:11.5px; white-space:nowrap}
+  /* chip discreto de moeda (ex.: USD nas carteiras internacionais) */
+  .moeda-tag{font-size:9.5px; font-weight:600; letter-spacing:.6px;
+    color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:1px 5px;
+    margin-left:8px}
+  /* agrupa nome + chip para o chip colar no nome (e não ser espalhado pelo space-between) */
+  .topname{display:inline-flex; align-items:center; min-width:0}
+  .cart .sparkbox{height:40px; margin:4px 0 14px}
+  .cart .sparkbox .spark{width:100%; height:40px}
+  .cart .peri{display:grid; grid-template-columns:repeat(5,1fr); gap:6px; text-align:center}
+  .cart .peri .p{background:var(--panel2); border:1px solid var(--border); border-radius:9px; padding:8px 3px; min-width:0}
+  .cart .peri .p.cmp{background:transparent; border-style:dashed}
+  .cart .peri .plab{font-size:9px; text-transform:uppercase; letter-spacing:.2px; color:var(--muted); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .cart .peri .p.cmp .plab{color:var(--accent-d)}
+  .cart .peri .pval{font-size:14px; font-weight:700; font-variant-numeric:tabular-nums}
+  /* Bitcoin: 3 caixas, cada uma com valorização em US$ (cima) e R$ (baixo) */
+  .cart .peri.peri3{grid-template-columns:repeat(3,1fr)}
+  .cart .peri .p.dual .pval{font-size:13.5px}
+  .p.dual .pval2, .tile.dual .pval2{font-weight:700; font-variant-numeric:tabular-nums; margin-top:3px}
+  .cart .peri .p.dual .pval2{font-size:13px}
+  .tile.dual .pval2{font-size:14px}
+  .cur{color:var(--muted); font-weight:600; font-size:.72em; margin-right:2px; letter-spacing:.2px}
+  /* Destaques (maiores altas/baixas do mês) */
+  .cart .dcols{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .cart .dhead{font-size:10px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:7px}
+  .cart .dhead.up{color:var(--up-bright)} .cart .dhead.down{color:var(--down)}
+  .cart .dl{display:flex; justify-content:space-between; gap:8px; padding:5px 0; border-bottom:1px solid rgba(43,43,43,.5); font-variant-numeric:tabular-nums}
+  .cart .dl:last-child{border-bottom:0}
+  .cart .dtk{font-weight:700; color:var(--txt); font-size:13px; letter-spacing:.2px}
+  .cart .dv{font-size:13px; font-weight:600}
+  /* Exposição por setor (barras) */
+  .setlist{display:flex; flex-direction:column; gap:10px; margin-top:2px}
+  .setlist .sltop{display:flex; justify-content:space-between; gap:8px; font-size:12.5px; margin-bottom:4px}
+  .setlist .sn{color:var(--axis)} .setlist .sp{color:var(--txt); font-weight:600; font-variant-numeric:tabular-nums}
+  .setlist .sbar{height:6px; background:var(--panel2); border-radius:4px; overflow:hidden}
+  .setlist .sbar span{display:block; height:100%; border-radius:4px}
+  .setpanel{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin-bottom:16px}
+  .setpanel-h{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:13px}
+
+  /* ---------- DETALHE: tabela ---------- */
+  .det-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:14px}
+  .det-title{font-size:19px; font-weight:600}
+  .det-title .n{color:var(--muted); font-size:12.5px; font-weight:400; margin-left:8px}
+  .det-tiles{display:flex; gap:10px; flex-wrap:wrap}
+  .tile{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 16px; text-align:center; min-width:92px}
+  .tile.cmp{background:transparent; border-style:dashed}
+  .tile.cmp .plab{color:var(--accent-d)}
+  .tile .plab{font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:3px}
+  .tile .pval{font-size:18px; font-weight:700; font-variant-numeric:tabular-nums}
+
+  .tablewrap{border:1px solid var(--border); border-radius:14px; overflow:auto; max-height:70vh; background:var(--panel)}
+  table{border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums}
+  thead th{
+    position:sticky; top:0; background:#181818; color:var(--axis);
+    font-size:11px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;
+    padding:11px 12px; text-align:right; white-space:nowrap; cursor:pointer; user-select:none;
+    border-bottom:1px solid var(--border);
+  }
+  thead th.lft{text-align:left}
+  thead th.sel{color:var(--accent); background:var(--hl)}
+  thead th .arw{opacity:.6; font-size:9px}
+  tbody td{padding:10px 12px; text-align:right; white-space:nowrap; border-bottom:1px solid rgba(43,43,43,.6)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:rgba(255,255,255,.022)}
+  td.lft{text-align:left}
+  td.sel{background:var(--hl)}
+  .tk{font-weight:700; letter-spacing:.3px; color:var(--txt)}
+  .nm{color:var(--muted); font-size:12px}
+  .price{color:var(--txt)}
+  .peso{color:var(--axis)}
+  .up{color:var(--up-bright)} .down{color:var(--down)} .na{color:#7d838c}
+  .spark{display:block}
+  .empty{padding:40px; text-align:center; color:var(--muted)}
+  footer{margin-top:22px; color:var(--muted); font-size:11.5px; line-height:1.6}
+  .link{color:var(--accent); cursor:pointer}
+  .link:hover{text-decoration:underline}
+  /* iOS Safari dá zoom ao focar campo com fonte < 16px; força 16px no mobile. */
+  @media (max-width:480px){ .card input, select{ font-size:16px } }
+  /* No mobile, os indicadores macro descem para uma linha própria, à esquerda. */
+  @media (max-width:640px){
+    .macro{ margin-left:0; padding-left:0; width:100%; justify-content:flex-start; gap:26px }
+    .macro .m{ text-align:left }
+  }
+</style>
+</head>
+<body>
+<!-- build: carteiras VAROS Academy · pos-review-v2 -->
+
+<!-- ===================== LOGIN ===================== -->
+<div id="login">
+  <form class="card" id="formLogin" autocomplete="off">
+    <div class="mark">Monitor de Carteiras<span class="dot"> ·</span></div>
+    <div class="tag">VAROS Academy Renda Variável · acesso restrito</div>
+    <label for="usuario">Usuário</label>
+    <input id="usuario" type="text" autocomplete="username" spellcheck="false" autocapitalize="off">
+    <label for="senha">Senha</label>
+    <input id="senha" type="password" autocomplete="current-password">
+    <button type="submit" id="btnEntrar">Entrar</button>
+    <div class="erro" id="erroLogin"></div>
+    <div class="foot">Os dados ficam cifrados. Sem o login e a senha corretos, nada é exibido.</div>
+  </form>
+</div>
+
+<!-- ===================== APP ===================== -->
+<div id="app"><div class="wrap">
+  <header>
+    <div>
+      <h1>Monitor de Carteiras<span class="dot"> ·</span> <span class="b3">VAROS Academy Renda Variável</span></h1>
+      <div class="sub" id="sub">—</div>
+    </div>
+    <div>
+      <span class="badge" id="badge">Yahoo Finance · ~15 min</span>
+      <span class="badge sair" id="btnSair">Sair</span>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label>Ver</label>
+      <select id="selCarteira"></select>
+    </div>
+    <div class="field" id="fieldVersao">
+      <label>Versão</label>
+      <div class="segmented" id="segVersao">
+        <button data-v="base" class="on">Padrão</button>
+        <button data-v="pro">PRO</button>
+        <button data-v="todas">Todas</button>
+      </div>
+    </div>
+    <div class="field" id="fieldExibir">
+      <label>Exibir</label>
+      <div class="segmented" id="segExibir">
+        <button data-e="desempenho" class="on">Desempenho</button>
+        <button data-e="destaques">Destaques</button>
+        <button data-e="setores">Setores</button>
+      </div>
+    </div>
+    <div class="field" id="fieldDestPeriodo" style="display:none">
+      <label>Destaques em</label>
+      <div class="segmented" id="segDestPeriodo">
+        <button data-dp="dia">Dia</button>
+        <button data-dp="semana">Semana</button>
+        <button data-dp="mes" class="on">30 dias</button>
+      </div>
+    </div>
+    <div class="field" id="fieldOrdenar" style="display:none">
+      <label>Ordenar por</label>
+      <div class="segmented" id="segOrdenar">
+        <button data-p="peso" class="on">Peso</button>
+        <button data-p="dia">Dia</button>
+        <button data-p="semana">Semana</button>
+        <button data-p="mes">30 dias</button>
+      </div>
+    </div>
+    <div class="macro" id="macro"></div>
+  </div>
+
+  <div id="view"></div>
+
+  <footer>
+    Variações sobre o preço de fechamento ajustado (proventos e desdobramentos) do Yahoo Finance,
+    com atraso de ~15 minutos. <b>Dia</b> = vs. o pregão anterior · <b>Semana</b> = últimos 7 dias ·
+    <b>30 dias</b> = últimos 30 dias corridos. A variação da carteira é a média das ações <b>ponderada pelos pesos de alocação</b>.
+    O <b>benchmark</b> (SMLL, IDIV, IFIX, S&P 500) é medido em 30 dias pelo ETF que replica o índice
+    (SMAL11, DIVO11, XFIX11, SPY); o <b>Alpha</b> é quanto a carteira rendeu acima do benchmark em 30 dias.
+    Ativos internacionais (marcados <b>US$</b>) têm a variação medida em dólar.
+    Ferramenta de acompanhamento — não é recomendação de investimento.
+  </footer>
+</div></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- utilidades de formatação ----------
+  const fmtPct = r => {
+    if(r==null) return "—";
+    let n = r*100;
+    if(Math.abs(n) < 0.005) n = 0;            // arredonda ínfimos e evita "-0,00%"
+    return n.toFixed(2).replace(".",",")+"%";
+  };
+  const fmtPreco = (p, moeda) => p==null ? "—"
+    : (moeda==="USD" ? "US$ " : "R$ ") + p.toFixed(2).replace(".",",");
+  const fmtPeso = w => (w==null?0:w).toFixed(w%1===0?0:1).replace(".",",")+"%";
+  // "na" (neutro) p/ nulo OU valor que arredonda a 0,00% — evita verde/vermelho no ~zero.
+  const classe = r => (r==null || Math.abs(r*100) < 0.005) ? "na" : (r>0 ? "up" : "down");
+  // Chip "USD" para carteiras com ativos em dólar (ex.: as internacionais).
+  const moedaTag = c => (c.ativos && c.ativos.some(a=>a.moeda==="USD"))
+    ? ' <span class="moeda-tag" title="Ativos cotados em dólar">USD</span>' : '';
+  const fmtMil = (v, pre) => v==null ? "" : pre + " " + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  // Canto superior direito do card: preço US$ · R$ (Bitcoin) ou nº de ativos (carteiras).
+  const topInfo = c => (c.tipo==="cripto" && c.extra)
+    ? `${fmtMil(c.extra.preco_usd,"US$")} · ${fmtMil(c.extra.preco_brl,"R$")}`
+    : `${c.n_ativos} ativos`;
+
+  // Alpha no mês = quanto a carteira rendeu acima (ou abaixo) do benchmark no mês.
+  const alphaMes = c => {
+    const bm = c.benchmark ? c.benchmark.retornos.mes : null;
+    return (c.benchmark && c.retornos.mes!=null && bm!=null) ? (c.retornos.mes - bm) : null;
+  };
+  // As 5 caixas de uma carteira: Dia, Semana, Mês, Benchmark (mês) e Alpha (mês).
+  // 'kls' = "p" (cards do dashboard) ou "tile" (detalhe).
+  function caixas(c, kls){
+    const r=c.retornos;
+    const cel = (lab,val,cmp)=>`<div class="${kls}${cmp?' cmp':''}"><div class="plab">${lab}</div>`
+      + `<div class="pval ${classe(val)}">${fmtPct(val)}</div></div>`;
+    if(c.tipo === "cripto"){   // Bitcoin: valorização em US$ (principal) e R$ (abaixo)
+      const rb = (c.extra && c.extra.ret_brl) || {};
+      const dual = (lab, u, b) => `<div class="${kls} dual"><div class="plab">${lab}</div>`
+        + `<div class="pval ${classe(u)}"><span class="cur">US$</span>${fmtPct(u)}</div>`
+        + `<div class="pval2 ${classe(b)}"><span class="cur">R$</span>${fmtPct(b)}</div></div>`;
+      return dual(D.periodos.dia, r.dia, rb.dia)
+           + dual(D.periodos.semana, r.semana, rb.semana)
+           + dual(D.periodos.mes, r.mes, rb.mes);
+    }
+    const b=c.benchmark, bm = b ? b.retornos.mes : null;
+    return cel(D.periodos.dia, r.dia)
+         + cel(D.periodos.semana, r.semana)
+         + cel(D.periodos.mes, r.mes)
+         + cel(b ? b.label : "Bench", bm, true)
+         + cel("Alpha", alphaMes(c), true);
+  }
+
+  function sparkline(pts, w, h){
+    if(!pts || pts.length<2) return "";
+    w=w||120; h=h||34; const pad=2;
+    const min=Math.min(...pts), max=Math.max(...pts), rng=(max-min)||1;
+    const step=(w-2*pad)/(pts.length-1);
+    const d = pts.map((v,i)=>[
+      (pad+i*step).toFixed(1),
+      (h-pad-((v-min)/rng)*(h-2*pad)).toFixed(1)
+    ].join(",")).join(" ");
+    const cor = pts[pts.length-1] >= pts[0] ? "var(--up-bright)" : "var(--down)";
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`
+         + `<polyline fill="none" stroke="${cor}" stroke-width="1.5" points="${d}"/></svg>`;
+  }
+
+  // ---------- descriptografia (Web Crypto) ----------
+  async function decifrar(blob, usuario, senha){
+    const b = s => Uint8Array.from(atob(s), c=>c.charCodeAt(0));
+    const salt=b(blob.salt), iv=b(blob.iv), ct=b(blob.ct);
+    const segredo = new TextEncoder().encode(usuario+"\n"+senha);
+    const base = await crypto.subtle.importKey("raw", segredo, "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+      {name:"PBKDF2", salt, iterations:blob.iter, hash:"SHA-256"},
+      base, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+    const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct);
+    return JSON.parse(new TextDecoder().decode(pt));
+  }
+
+  // ---------- estado ----------
+  let D = null;                       // dados decifrados
+  const estado = { carteira: "__home__", ordenar: "peso", versao: "base", exibir: "desempenho", destaquePeriodo: "mes" };
+
+  // Famílias de carteiras (para o toggle Padrão / PRO / Todas).
+  const FAMILIA_ORDEM = ["Crescimento", "Renda", "FIIs", "Internacional"];
+  const ehPro = c => /\bPRO\b/i.test(c.nome);
+  // Família = nome sem o prefixo "Academy" e sem o sufixo "PRO" (ex.: "Crescimento").
+  const familia = c => c.nome.replace(/^Academy\s+/i, "").replace(/\s*PRO\s*$/i, "").trim();
+  const CHAVE_SESSAO = "monitor_carteiras_cred";
+
+  const el = id => document.getElementById(id);
+
+  // ---------- LOGIN ----------
+  const loginBox = el("login"), appBox = el("app");
+  const formLogin = el("formLogin"), erroLogin = el("erroLogin"), btnEntrar = el("btnEntrar");
+
+  // Carrega o arquivo cifrado. Em http/https adiciona ?t= para furar o cache do
+  // GitHub Pages (dados novos a cada atualização); em file:// carrega direto.
+  function carregarDados(){
+    if(!(window.crypto && crypto.subtle)){
+      erroLogin.textContent = "Este navegador não suporta a descriptografia (abra pelo link https).";
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = "dados.enc.js" + (location.protocol.indexOf("http")===0 ? ("?t="+Date.now()) : "");
+    s.onload = prontidao;
+    s.onerror = ()=>{ erroLogin.textContent = "Arquivo de dados (dados.enc.js) não encontrado."; };
+    document.head.appendChild(s);
+  }
+  function prontidao(){
+    if(!window.DADOS_CIFRADO){
+      erroLogin.textContent = "Arquivo de dados (dados.enc.js) não encontrado.";
+      return;
+    }
+    let cred=null;
+    try{ cred = JSON.parse(sessionStorage.getItem(CHAVE_SESSAO)||"null"); }catch(e){}
+    if(cred && cred.u){ tentarLogin(cred.u, cred.s, true); }
+    else { el("usuario").focus(); }
+  }
+
+  async function tentarLogin(usuario, senha, silencioso){
+    erroLogin.textContent = "";
+    btnEntrar.disabled = true; btnEntrar.textContent = "Entrando…";
+    try{
+      D = await decifrar(window.DADOS_CIFRADO, usuario, senha);
+      try{ sessionStorage.setItem(CHAVE_SESSAO, JSON.stringify({u:usuario,s:senha})); }catch(e){}
+      loginBox.style.display = "none";
+      appBox.style.display = "block";
+      iniciarApp();
+    }catch(e){
+      if(!silencioso) erroLogin.textContent = "Usuário ou senha incorretos.";
+      try{ sessionStorage.removeItem(CHAVE_SESSAO); }catch(_){}
+    }finally{
+      btnEntrar.disabled = false; btnEntrar.textContent = "Entrar";
+    }
+  }
+
+  formLogin.addEventListener("submit", e=>{
+    e.preventDefault();
+    tentarLogin(el("usuario").value.trim(), el("senha").value, false);
+  });
+
+  el("btnSair").addEventListener("click", ()=>{
+    try{ sessionStorage.removeItem(CHAVE_SESSAO); }catch(e){}
+    location.reload();
+  });
+
+  // dispara o carregamento do arquivo cifrado (e depois o auto-login, se houver)
+  carregarDados();
+
+  // ---------- APP ----------
+  function renderMacro(){
+    const m = D.macro || {};
+    const pct = v => v==null ? "—" : v.toFixed(2).replace(".",",")+"%";
+    const rs  = v => v==null ? "—" : "R$ "+v.toFixed(2).replace(".",",");
+    const cel = (lab, val) => `<div class="m"><div class="mlab">${lab}</div><div class="mval">${val}</div></div>`;
+    el("macro").innerHTML = cel("Dólar", rs(m.dolar)) + cel("CDI a.a.", pct(m.cdi)) + cel("IPCA 12m", pct(m.ipca12m));
+  }
+  function iniciarApp(){
+    // "cotações de X" só quando o pregão difere do dia da atualização (fim de
+    // semana/feriado); no dia a dia a própria data/hora já diz tudo.
+    const diaAtualiz = (D.atualizado_em || "").split(" ")[0];
+    const difere = D.data_pregao && D.data_pregao !== diaAtualiz;
+    el("sub").textContent = `Atualizado em ${D.atualizado_em || "—"}`
+      + (difere ? ` · cotações de ${D.data_pregao}` : "");
+    renderMacro();
+
+    const sel = el("selCarteira");
+    sel.innerHTML = "";
+    const oHome = document.createElement("option");
+    oHome.value = "__home__"; oHome.textContent = "◆  Visão geral (todas)";
+    sel.appendChild(oHome);
+    D.carteiras.forEach((c,i)=>{
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = c.nome;
+      sel.appendChild(o);
+    });
+    sel.value = estado.carteira;
+    sel.onchange = ()=>{ estado.carteira = sel.value; render(); };
+
+    const seg = el("segOrdenar");
+    seg.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{
+        estado.ordenar = b.dataset.p;
+        seg.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b));
+        render();
+      };
+    });
+    const segV = el("segVersao");
+    segV.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{
+        estado.versao = b.dataset.v;
+        segV.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b));
+        render();
+      };
+    });
+    const segE = el("segExibir");
+    segE.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{
+        estado.exibir = b.dataset.e;
+        segE.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b));
+        render();
+      };
+    });
+    const segDP = el("segDestPeriodo");
+    segDP.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{
+        estado.destaquePeriodo = b.dataset.dp;
+        segDP.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b));
+        render();
+      };
+    });
+
+    render();
+  }
+
+  function render(){
+    const home = estado.carteira === "__home__";
+    el("fieldOrdenar").style.display = home ? "none" : "flex";
+    el("fieldVersao").style.display = home ? "flex" : "none";
+    el("fieldExibir").style.display = home ? "flex" : "none";
+    el("fieldDestPeriodo").style.display = (home && estado.exibir === "destaques") ? "flex" : "none";
+    if(home) renderHome(); else renderDetalhe(+estado.carteira);
+  }
+
+  // Carteiras visíveis no dashboard conforme o toggle Versão (com ordem por família).
+  function carteirasVisiveis(){
+    let lista = D.carteiras.map((c,i)=>({c,i}));
+    const cripto = x => x.c.tipo === "cripto";  // Bitcoin: só aparece em "Todas"
+    if(estado.versao === "base"){
+      lista = lista.filter(x => !ehPro(x.c) && !cripto(x));
+    } else if(estado.versao === "pro"){
+      const fam = {};
+      lista.filter(x => !cripto(x)).forEach(x => {
+        const f = familia(x.c); (fam[f] = fam[f] || {});
+        if(ehPro(x.c)) fam[f].pro = x; else fam[f].base = x;
+      });
+      lista = Object.values(fam).map(f => f.pro || f.base);
+    }
+    lista.sort((a,b)=>{
+      const oa = FAMILIA_ORDEM.indexOf(familia(a.c)), ob = FAMILIA_ORDEM.indexOf(familia(b.c));
+      const ia = oa<0?99:oa, ib = ob<0?99:ob;
+      if(ia !== ib) return ia - ib;
+      return (ehPro(a.c)?1:0) - (ehPro(b.c)?1:0);
+    });
+    return lista;
+  }
+
+  // ---------- HOME ----------
+  const CORES_SETOR = ['var(--accent)','#3f8fd6','#c9922e','#9b6dd6','#43AF43','#d6683f','#3aa99b','#c85a7c','#7d8590','#5a8fd6'];
+  function barrasSetor(setores){
+    if(!setores || !setores.length) return '<div class="n">sem setor definido</div>';
+    return setores.map((s,k)=>`<div class="sl">
+      <div class="sltop"><span class="sn">${s.setor}</span><span class="sp">${fmtPeso(s.pct)}</span></div>
+      <div class="sbar"><span style="width:${Math.min(100,s.pct)}%; background:${CORES_SETOR[k%CORES_SETOR.length]}"></span></div>
+    </div>`).join("");
+  }
+  function renderSetores(vis){
+    const cards = vis.filter(({c}) => c.tipo !== "cripto").map(({c,i})=>
+      `<div class="cart" onclick="__abrir(${i})">
+        <div class="top"><span class="topname"><span class="nome">${c.nome}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
+        <div class="setlist">${barrasSetor(c.setores)}</div>
+      </div>`
+    ).join("");
+    el("view").innerHTML = `<div class="grid">${cards}</div>`;
+  }
+
+  function renderHome(){
+    const vis = carteirasVisiveis();
+    if(estado.exibir === "destaques") return renderDestaques(vis);
+    if(estado.exibir === "setores") return renderSetores(vis);
+    const cards = vis.map(({c,i})=>
+      `<div class="cart" onclick="__abrir(${i})">
+        <div class="top"><span class="topname"><span class="nome">${c.nome}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
+        <div class="sparkbox">${sparkline(c.spark, 320, 40) || '<span class="n">sem histórico</span>'}</div>
+        <div class="peri${c.tipo==='cripto'?' peri3':''}">${caixas(c, "p")}</div>
+      </div>`
+    ).join("");
+    el("view").innerHTML = `<div class="grid">${cards}</div>`;
+  }
+
+  // Destaques: maiores altas e maiores baixas do MÊS de cada carteira.
+  function renderDestaques(vis){
+    const p = estado.destaquePeriodo || "mes";
+    const cards = vis.filter(({c}) => c.tipo !== "cripto").map(({c,i})=>{
+      const comDado = c.ativos.filter(a=>a.retornos[p]!=null);
+      const altas = comDado.filter(a=>a.retornos[p]*100 >= 0.005)
+                           .sort((a,b)=>b.retornos[p] - a.retornos[p]).slice(0, 3);
+      const baixas = comDado.filter(a=>a.retornos[p]*100 <= -0.005)
+                            .sort((a,b)=>a.retornos[p] - b.retornos[p]).slice(0, 3);
+      const linha = a => `<div class="dl"><span class="dtk">${a.ticker}</span>`
+        + `<span class="dv ${classe(a.retornos[p])}">${fmtPct(a.retornos[p])}</span></div>`;
+      const vazio = t => `<div class="dl"><span class="nm">${t}</span></div>`;
+      return `<div class="cart" onclick="__abrir(${i})">
+        <div class="top"><span class="topname"><span class="nome">${c.nome}</span>${moedaTag(c)}</span><span class="n">${({dia:'hoje',semana:'na semana',mes:'últimos 30 dias'})[p]||('em '+D.periodos[p])}</span></div>
+        <div class="dcols">
+          <div class="dcol"><div class="dhead up">▲ Maiores altas</div>${altas.map(linha).join("")||vazio("nenhuma alta")}</div>
+          <div class="dcol"><div class="dhead down">▼ Maiores baixas</div>${baixas.map(linha).join("")||vazio("nenhuma baixa")}</div>
+        </div>
+      </div>`;
+    }).join("");
+    el("view").innerHTML = `<div class="grid">${cards}</div>`;
+  }
+
+  // ---------- DETALHE ----------
+  function renderDetalhe(idx){
+    const c = D.carteiras[idx];
+    if(!c){ estado.carteira="__home__"; return render(); }
+    const r = c.retornos;
+
+    const tiles = caixas(c, "tile");
+
+    const avisoPeso = Math.abs((c.soma_peso||0)-100) > 0.5
+      ? ` · <span style="color:var(--muted)">soma dos pesos: ${fmtPeso(c.soma_peso)}</span>` : "";
+
+    // ordenação
+    const ord = estado.ordenar;
+    const ativos = c.ativos.slice().sort((a,b)=>{
+      const va = ord==="peso" ? a.peso : a.retornos[ord];
+      const vb = ord==="peso" ? b.peso : b.retornos[ord];
+      if(va==null && vb==null) return 0;
+      if(va==null) return 1; if(vb==null) return -1;
+      return vb-va; // sempre do maior para o menor
+    });
+
+    const col = p => estado.ordenar===p ? " sel" : "";
+    const th = `<tr>
+      <th class="lft">Ativo</th>
+      <th class="lft">Tendência</th>
+      <th class="${col('peso')}" data-o="peso">Peso</th>
+      <th>Preço</th>
+      <th class="${col('dia')}" data-o="dia">${D.periodos.dia}</th>
+      <th class="${col('semana')}" data-o="semana">${D.periodos.semana}</th>
+      <th class="${col('mes')}" data-o="mes">${D.periodos.mes}</th>
+    </tr>`;
+
+    const linhas = ativos.map(a=>{
+      const ar=a.retornos;
+      const cell = p => `<td class="${classe(ar[p])}${col(p)}">${fmtPct(ar[p])}</td>`;
+      const tagMoeda = a.moeda==="USD" ? ' <span style="color:var(--accent-d)">· US$</span>' : "";
+      return `<tr>
+        <td class="lft"><span class="tk">${a.ticker}</span><br><span class="nm">${a.empresa||""}${a.setor?" · "+a.setor:""}${tagMoeda}</span></td>
+        <td class="lft">${sparkline(a.spark, 92, 26)}</td>
+        <td class="peso${col('peso')}">${fmtPeso(a.peso)}</td>
+        <td class="price">${fmtPreco(a.preco, a.moeda)}</td>
+        ${cell('dia')}${cell('semana')}${cell('mes')}
+      </tr>`;
+    }).join("");
+
+    el("view").innerHTML = `
+      <div class="det-head">
+        <div>
+          <div class="det-title"><span class="topname">${c.nome}${moedaTag(c)}</span><span class="n">${c.n_ativos} ativo${c.n_ativos===1?'':'s'}${avisoPeso}</span></div>
+          <div class="sub"><span class="link" onclick="__abrir('__home__')">← voltar para a visão geral</span></div>
+        </div>
+        <div class="det-tiles">${tiles}</div>
+      </div>
+      ${(c.setores && c.setores.length) ? `<div class="setpanel"><div class="setpanel-h">Exposição por setor</div><div class="setlist">${barrasSetor(c.setores)}</div></div>` : ""}
+      <div class="tablewrap"><table><thead>${th}</thead><tbody>${linhas}</tbody></table></div>`;
+
+    el("view").querySelectorAll("thead th[data-o]").forEach(t=>{
+      t.onclick = ()=>{
+        estado.ordenar = t.dataset.o;
+        el("segOrdenar").querySelectorAll("button").forEach(x=>x.classList.toggle("on", x.dataset.p===estado.ordenar));
+        render();
+      };
+    });
+  }
+  window.__abrir = (v)=>{ estado.carteira = (v==='__home__')?'__home__':String(v); el("selCarteira").value=estado.carteira; render(); };
+})();
+</script>
+</body>
+</html>
