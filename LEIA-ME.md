@@ -28,33 +28,30 @@ Identidade visual VAROS: fundo preto, paleta verde-turquesa, fonte Instrument Sa
 
 ---
 
-## Segurança: por que existe a pasta `docs/`
+## Segurança: nada sensível fica neste repositório
 
-O GitHub Pages publica **tudo o que está na pasta que ele serve**. Se as
-carteiras e o `atualizar.py` (que tem a senha) ficassem nessa pasta, qualquer um
-poderia lê-los pela URL — e o login perderia o sentido.
+O GitHub Pages grátis só publica de repositório **público**. Por isso este
+repositório **não contém nenhum dado sensível**:
 
-Por isso o projeto é dividido:
+| O quê | Onde fica | Está no repositório? |
+|-------|-----------|----------------------|
+| Código (`atualizar.py`, `docs/index.html`) | repositório | **Sim** — sem segredo algum |
+| `docs/dados.enc.js` | repositório | **Sim**, mas **cifrado** (ilegível sem a senha) |
+| **Carteiras** (ativos e pesos) | secret `MONITOR_CARTEIRAS` | **Não** |
+| **Senha** | secret `MONITOR_SENHA` | **Não** |
+| `carteiras/`, `pdfs/`, `senha.local` | só na máquina do autor | **Não** (`.gitignore`) |
 
-| Fica em… | O quê | Publicado na web? |
-|----------|-------|-------------------|
-| **`docs/`** | `index.html`, `assets/`, `dados.enc.js` (cifrado) | **Sim** (é o que o Pages serve) |
-| **raiz** | `atualizar.py`, `carteiras/`, `requirements.txt`, `.github/` | **Não** |
-| **`pdfs/`** | PDFs de origem das carteiras | **Não** (no `.gitignore`) |
-
-Ou seja: publica-se só o `docs/` (cifrado). O resto fica no repositório
-**privado**, fora do alcance da web. Configure o Pages para servir **`/docs`**
-(veja `COMO-PUBLICAR.md`).
+O Pages serve a pasta **`/docs`** — onde está só o site e o arquivo cifrado.
 
 ---
 
 ## Login e senha
 
-- Padrão: usuário **`VAROS`**, senha **`varos@2026`**.
-- Para trocar: mude `USUARIO`/`SENHA` no topo do `atualizar.py`, **ou** (melhor)
-  defina os *secrets* `MONITOR_USUARIO` / `MONITOR_SENHA` no GitHub. É uma senha
-  **única** para todos — sem cadastro de usuários.
-- Depois de trocar, rode o `atualizar.py` de novo para regerar o `dados.enc.js`.
+- O acesso é por **usuário + senha únicos** (sem cadastro de usuários).
+- Eles **não estão no código**: ficam nos *secrets* `MONITOR_USUARIO` e
+  `MONITOR_SENHA` do GitHub (Settings → Secrets and variables → Actions).
+- Trocou a senha? Atualize o secret e rode o robô (Actions → **Run workflow**)
+  para regerar o `docs/dados.enc.js` com a senha nova.
 
 ---
 
