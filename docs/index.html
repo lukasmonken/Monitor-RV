@@ -66,6 +66,46 @@
   .badge.sair{cursor:pointer; margin-left:8px}
   .badge.sair:hover{border-color:var(--down); color:var(--down)}
 
+  /* ---------- SELO DE MERCADO ABERTO/FECHADO ---------- */
+  /* Fica colado no horário de atualização: verde piscando = pregão rolando,
+     vermelho parado = fechado, âmbar = aberto mas sem dado novo há tempo demais. */
+  .subrow{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:5px}
+  .subrow .sub{margin-top:0}
+  .mkt{
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+    font-size:11.5px; color:var(--muted); background:var(--panel);
+    border:1px solid var(--border); border-radius:20px; padding:3px 10px 3px 8px;
+  }
+  .mkt i{width:7px; height:7px; border-radius:50%; background:currentColor; flex:none}
+  .mkt.aberto {color:var(--up-bright); border-color:rgba(79,224,79,.32)}
+  .mkt.fechado{color:var(--down);      border-color:rgba(229,72,77,.30)}
+  .mkt.atraso {color:#E8B339;          border-color:rgba(232,179,57,.32)}
+  .mkt.aberto i, .mkt.atraso i{animation:farol 1.8s ease-in-out infinite}
+  @keyframes farol{
+    0%,100%{opacity:1;  box-shadow:0 0 5px 1px currentColor}
+    50%    {opacity:.30; box-shadow:0 0 0 0 currentColor}
+  }
+
+  /* Respiro na caixa do Dia enquanto o pregão está aberto: sinaliza que aquele
+     número é o que muda sozinho. Para de respirar com o mercado fechado ou com
+     os dados atrasados — piscar nessas horas seria mentira. */
+  @keyframes respiro{
+    0%,100%{border-color:var(--border);        box-shadow:0 0 0 0 rgba(18,216,178,0)}
+    50%    {border-color:rgba(18,216,178,.40); box-shadow:0 0 9px 0 rgba(18,216,178,.11)}
+  }
+  body.mercado-aberto .p.viva,
+  body.mercado-aberto .tile.viva{animation:respiro 2.8s ease-in-out infinite}
+  /* Fisgada: o número em si acende quando a cotação REALMENTE trocou de valor. */
+  @keyframes fisgada{
+    0%  {background:rgba(18,216,178,.26); box-shadow:0 0 0 4px rgba(18,216,178,.26)}
+    100%{background:transparent;          box-shadow:0 0 0 4px rgba(18,216,178,0)}
+  }
+  .pval.novo, .pval2.novo{border-radius:5px; animation:fisgada 1.6s ease-out 1}
+  /* Quem pediu menos movimento no sistema não recebe nenhuma animação. */
+  @media (prefers-reduced-motion:reduce){
+    .mkt i, .p.viva, .tile.viva, .pval.novo, .pval2.novo{animation:none !important}
+  }
+
   .controls{
     display:flex; flex-wrap:wrap; gap:14px 22px; align-items:flex-end;
     background:var(--panel); border:1px solid var(--border); border-radius:14px;
@@ -211,7 +251,10 @@
   <header>
     <div>
       <h1>Monitor de Carteiras<span class="dot"> ·</span> <span class="b3">VAROS Academy Renda Variável</span></h1>
-      <div class="sub" id="sub">—</div>
+      <div class="subrow">
+        <span class="mkt" id="mkt"><i></i><span id="mktxt">—</span></span>
+        <span class="sub" id="sub">—</span>
+      </div>
     </div>
     <div>
       <span class="badge" id="badge">Yahoo Finance · ~15 min</span>
@@ -305,21 +348,23 @@
   };
   // As 5 caixas de uma carteira: Dia, Semana, Mês, Benchmark (mês) e Alpha (mês).
   // 'kls' = "p" (cards do dashboard) ou "tile" (detalhe).
+  // A caixa do Dia leva a classe "viva": é a única que muda de verdade durante o
+  // pregão, então é ela que respira e que acende quando chega cotação nova.
   function caixas(c, kls){
     const r=c.retornos;
-    const cel = (lab,val,cmp)=>`<div class="${kls}${cmp?' cmp':''}"><div class="plab">${lab}</div>`
+    const cel = (lab,val,cmp,viva)=>`<div class="${kls}${cmp?' cmp':''}${viva?' viva':''}"><div class="plab">${lab}</div>`
       + `<div class="pval ${classe(val)}">${fmtPct(val)}</div></div>`;
     if(c.tipo === "cripto"){   // Bitcoin: valorização em US$ (principal) e R$ (abaixo)
       const rb = (c.extra && c.extra.ret_brl) || {};
-      const dual = (lab, u, b) => `<div class="${kls} dual"><div class="plab">${lab}</div>`
+      const dual = (lab, u, b, viva) => `<div class="${kls} dual${viva?' viva':''}"><div class="plab">${lab}</div>`
         + `<div class="pval ${classe(u)}"><span class="cur">US$</span>${fmtPct(u)}</div>`
         + `<div class="pval2 ${classe(b)}"><span class="cur">R$</span>${fmtPct(b)}</div></div>`;
-      return dual(D.periodos.dia, r.dia, rb.dia)
+      return dual(D.periodos.dia, r.dia, rb.dia, true)
            + dual(D.periodos.semana, r.semana, rb.semana)
            + dual(D.periodos.mes, r.mes, rb.mes);
     }
     const b=c.benchmark, bm = b ? b.retornos.mes : null;
-    return cel(D.periodos.dia, r.dia)
+    return cel(D.periodos.dia, r.dia, false, true)
          + cel(D.periodos.semana, r.semana)
          + cel(D.periodos.mes, r.mes)
          + cel(b ? b.label : "Bench", bm, true)
@@ -432,13 +477,165 @@
     const cel = (lab, val) => `<div class="m"><div class="mlab">${lab}</div><div class="mval">${val}</div></div>`;
     el("macro").innerHTML = cel("Dólar", rs(m.dolar)) + cel("CDI a.a.", pct(m.cdi)) + cel("IPCA 12m", pct(m.ipca12m));
   }
-  function iniciarApp(){
+  // ---------- RELÓGIO DE BRASÍLIA E STATUS DO PREGÃO ----------
+  // Lemos a hora pelo fuso America/Sao_Paulo em vez do relógio da máquina: assim
+  // o selo continua certo se o usuário estiver viajando ou com o fuso torto.
+  const FMT_BR = new Intl.DateTimeFormat("en-GB", {
+    timeZone:"America/Sao_Paulo", hour12:false,
+    year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit"
+  });
+  function agoraBR(){
+    const p = {};
+    FMT_BR.formatToParts(new Date()).forEach(x=>{ if(x.type!=="literal") p[x.type] = +x.value; });
+    if(p.hour === 24) p.hour = 0;         // alguns navegadores devolvem 24h à meia-noite
+    return { ano:p.year, mes:p.month, dia:p.day, hora:p.hour, min:p.minute,
+             semana:new Date(Date.UTC(p.year, p.month-1, p.day)).getUTCDay() };
+  }
+
+  // Feriados em que a B3 não abre. Os móveis saem da Páscoa (algoritmo de Meeus):
+  // Carnaval (-48 e -47), Sexta-feira Santa (-2) e Corpus Christi (+60).
+  function pascoa(a){
+    const b=a%19, c=Math.floor(a/100), d=a%100, e=Math.floor(c/4), f=c%4,
+          g=Math.floor((c+8)/25), h=Math.floor((c-g+1)/3), i=(19*b+c-e-h+15)%30,
+          j=Math.floor(d/4), k=d%4, l=(32+2*f+2*j-i-k)%7,
+          m=Math.floor((b+11*i+22*l)/451),
+          mes=Math.floor((i+l-7*m+114)/31), dia=((i+l-7*m+114)%31)+1;
+    return Date.UTC(a, mes-1, dia);
+  }
+  const FERIADOS_FIXOS = ["01-01","04-21","05-01","09-07","10-12","11-02","11-15","11-20","12-24","12-25","12-31"];
+  const cacheFeriados = {};
+  function feriados(ano){
+    if(cacheFeriados[ano]) return cacheFeriados[ano];
+    const s = new Set(FERIADOS_FIXOS.map(x => ano + "-" + x));
+    const p = pascoa(ano), DIA = 86400000;
+    [-48,-47,-2,60].forEach(n=>{
+      const t = new Date(p + n*DIA);
+      s.add(`${ano}-${String(t.getUTCMonth()+1).padStart(2,"0")}-${String(t.getUTCDate()).padStart(2,"0")}`);
+    });
+    return (cacheFeriados[ano] = s);
+  }
+
+  const ABERTURA = 10*60, FECHAMENTO = 18*60;   // pregão regular da B3, em minutos
+  const ATRASO_MAX = 25;                        // min sem dado novo p/ acender o âmbar
+
+  // "atualizado_em" vem carimbado em horário de Brasília (UTC-3 o ano inteiro,
+  // já que o país acabou com o horário de verão em 2019).
+  function idadeDados(){
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/.exec((D && D.atualizado_em) || "");
+    if(!m) return null;
+    const t = Date.UTC(+m[3], +m[2]-1, +m[1], +m[4]+3, +m[5]);
+    return Math.max(0, Math.round((Date.now() - t)/60000));
+  }
+  function statusMercado(){
+    const n = agoraBR();
+    const hoje = `${n.ano}-${String(n.mes).padStart(2,"0")}-${String(n.dia).padStart(2,"0")}`;
+    const minutos = n.hora*60 + n.min;
+    const util = n.semana >= 1 && n.semana <= 5 && !feriados(n.ano).has(hoje);
+    if(!util || minutos < ABERTURA || minutos >= FECHAMENTO)
+      return { cls:"fechado", txt:"Mercado fechado", dica:"Fora do pregão regular da B3 (10h–18h)" };
+    const idade = idadeDados();
+    if(idade != null && idade > ATRASO_MAX)
+      return { cls:"atraso", txt:`Sem dado novo há ${idade} min`,
+               dica:"O robô atualiza a cada ~15 min; passou disso sem trazer nada novo." };
+    return { cls:"aberto", txt:"Mercado aberto", dica:"Pregão regular da B3 (10h–18h)" };
+  }
+
+  // Pinta o selo e reescreve a linha do horário. Só a caixa do Dia respira, e só
+  // enquanto o pregão está de fato aberto e com dado fresco.
+  function pintarStatus(){
+    if(!D) return;
+    const s = statusMercado(), idade = idadeDados();
+    const selo = el("mkt");
+    selo.className = "mkt " + s.cls;
+    selo.title = s.dica;
+    el("mktxt").textContent = s.txt;
+    document.body.classList.toggle("mercado-aberto", s.cls === "aberto");
     // "cotações de X" só quando o pregão difere do dia da atualização (fim de
     // semana/feriado); no dia a dia a própria data/hora já diz tudo.
     const diaAtualiz = (D.atualizado_em || "").split(" ")[0];
     const difere = D.data_pregao && D.data_pregao !== diaAtualiz;
     el("sub").textContent = `Atualizado em ${D.atualizado_em || "—"}`
+      + (idade == null ? "" : ` · há ${idade === 0 ? "instantes" : idade + " min"}`)
       + (difere ? ` · cotações de ${D.data_pregao}` : "");
+  }
+
+  // ---------- ATUALIZAÇÃO AUTOMÁTICA ----------
+  // Recarregar a página inteira perderia a carteira aberta, os toggles e a
+  // rolagem, e daria um flash feio. Em vez disso baixamos só o dados.enc.js de
+  // novo, deciframos com a credencial que já está na sessão e redesenhamos.
+  // Se o carimbo de hora não mudou, não encostamos na tela.
+  // Com o pregão aberto vale conferir de minuto em minuto. Fechado, o robô nem
+  // roda — conferir de 10 em 10 min só serve para pegar a última rodada do dia
+  // sem torrar banda de quem esquece a aba aberta a noite toda.
+  const POLL_ABERTO = 60000, POLL_FECHADO = 600000;
+  let timerSync = null, sincronizando = false;
+
+  function baixarCifrado(){
+    return new Promise((ok, falha)=>{
+      const s = document.createElement("script");
+      s.src = "dados.enc.js?t=" + Date.now();   // fura o cache do GitHub Pages
+      s.onload  = ()=>{ s.remove(); ok(window.DADOS_CIFRADO); };
+      s.onerror = ()=>{ s.remove(); falha(new Error("falha ao baixar")); };
+      document.head.appendChild(s);
+    });
+  }
+  // Fotografa o texto de cada caixa "viva" antes de redesenhar, para saber
+  // depois quais números realmente mudaram e acender só esses.
+  function fotoVivas(){
+    const m = [];
+    document.querySelectorAll("#view .viva").forEach(b => m.push(b.textContent));
+    return m;
+  }
+  function acenderMudancas(antes){
+    document.querySelectorAll("#view .viva").forEach((box, k)=>{
+      if(antes[k] === box.textContent) return;      // esse número ficou parado
+      box.querySelectorAll(".pval, .pval2").forEach(v=>{
+        v.classList.remove("novo");
+        void v.offsetWidth;                          // reinicia a animação
+        v.classList.add("novo");
+      });
+    });
+  }
+  async function sincronizar(){
+    if(sincronizando || !D || document.visibilityState === "hidden") return;
+    let cred = null;
+    try{ cred = JSON.parse(sessionStorage.getItem(CHAVE_SESSAO) || "null"); }catch(e){}
+    if(!cred || !cred.u) return;
+    sincronizando = true;
+    try{
+      const novo = await decifrar(await baixarCifrado(), cred.u, cred.s);
+      if(novo.atualizado_em !== D.atualizado_em){
+        const antes = fotoVivas();
+        const tab = document.querySelector("#view .tablewrap");
+        const rolagem = tab ? tab.scrollTop : 0;
+        D = novo;
+        render();
+        const tab2 = document.querySelector("#view .tablewrap");
+        if(tab2) tab2.scrollTop = rolagem;           // não joga a tabela pro topo
+        acenderMudancas(antes);
+      }
+      pintarStatus();
+    }catch(e){
+      // rede instável ou arquivo sendo reescrito: tenta de novo no próximo ciclo
+    }finally{
+      sincronizando = false;
+    }
+  }
+  function agendarSync(){
+    clearTimeout(timerSync);
+    const espera = statusMercado().cls === "fechado" ? POLL_FECHADO : POLL_ABERTO;
+    timerSync = setTimeout(async ()=>{ await sincronizar(); agendarSync(); }, espera);
+  }
+  // Aba escondida não gasta rede; ao voltar, confere na hora.
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState === "visible" && D){ pintarStatus(); sincronizar(); }
+  });
+
+  function iniciarApp(){
+    pintarStatus();
+    setInterval(pintarStatus, 30000);   // mantém o "há X min" e o selo vivos
+    // Em file:// não há servidor para reconsultar; o auto-refresh só faz sentido no site.
+    if(location.protocol.indexOf("http") === 0) agendarSync();
     renderMacro();
 
     const sel = el("selCarteira");
