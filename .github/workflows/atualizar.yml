@@ -25,11 +25,16 @@ jobs:
   atualizar:
     runs-on: ubuntu-latest
     steps:
+      # As versões destas duas actions precisam rodar em Node 24. As antigas
+      # (checkout@v4, setup-python@v5) ainda funcionam, mas o GitHub as força
+      # no Node 24 e emite aviso de descontinuado — um dia ele para de forçar
+      # e o robô quebra. Ao atualizar no futuro, confira se a major nova roda
+      # em node24 (campo "using:" no action.yml da action).
       - name: Baixar o repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Instalar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
