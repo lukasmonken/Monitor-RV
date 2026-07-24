@@ -8,6 +8,10 @@
 carteiras/
 carteiras.local.txt
 
+# Mapa ticker->setor — vai para o secret MONITOR_SETORES (a lista de tickers
+# revelaria os ativos das carteiras, por isso não fica no repositório público).
+setores.local.csv
+
 # Senha — vai para o secret MONITOR_SENHA.
 senha.local
 

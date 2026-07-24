@@ -43,7 +43,26 @@ def main() -> None:
         print("  •", os.path.splitext(os.path.basename(caminho))[0])
     print("\nAgora copie TODO o conteúdo de carteiras.local.txt e cole no secret")
     print("MONITOR_CARTEIRAS (GitHub > Settings > Secrets and variables > Actions).")
-    print("Depois rode o robô: aba Actions > Run workflow.")
+
+    # Setores (mapa ticker->setor) — secret separado MONITOR_SETORES. A lista de
+    # tickers é sensível, por isso também não fica no repositório público.
+    setores_csv = os.path.join(AQUI, "setores.local.csv")
+    if os.path.exists(setores_csv):
+        with open(setores_csv, encoding="utf-8-sig") as f:
+            n_set = sum(
+                1 for l in f
+                if l.strip() and not l.strip().startswith("#")
+                and l.split(",", 1)[0].strip().lower() != "ticker"
+            )
+        print(f"\nSetores: {n_set} tickers em setores.local.csv.")
+        print("Se entrou um ticker NOVO nas carteiras, atualize setores.local.csv e")
+        print("cole o conteúdo dele no secret MONITOR_SETORES (senão a quebra por")
+        print("setor ignora esse ticker). Sem ticker novo, não precisa mexer nele.")
+    else:
+        print("\n(Sem setores.local.csv — a 'exposição por setor' ficará vazia.")
+        print(" Crie o arquivo e o secret MONITOR_SETORES se quiser essa quebra.)")
+
+    print("\nDepois rode o robô: aba Actions > Run workflow.")
 
 
 if __name__ == "__main__":

@@ -10,8 +10,9 @@ fica público, **nada sensível pode estar nele**. Por isso:
 | Código (`atualizar.py`, `docs/index.html`) | repositório | **Sim** — não tem segredo nenhum |
 | `docs/dados.enc.js` | repositório | **Sim** — mas **cifrado** (ilegível sem a senha) |
 | **Carteiras** (ativos e pesos) | secret `MONITOR_CARTEIRAS` | **Não** |
+| **Setores** (mapa ticker→setor) | secret `MONITOR_SETORES` | **Não** — a lista de tickers revelaria os ativos |
 | **Senha** | secret `MONITOR_SENHA` | **Não** |
-| `pdfs/`, `carteiras/`, `senha.local` | só na sua máquina | **Não** (`.gitignore`) |
+| `pdfs/`, `carteiras/`, `senha.local`, `setores.local.csv` | só na sua máquina | **Não** (`.gitignore`) |
 
 Resultado: o repositório é público, mas **não revela os ativos**. Eles só existem
 dentro do secret e do arquivo cifrado.
@@ -28,10 +29,10 @@ No **GitHub Desktop**, com o repositório **Monitor-RV** aberto:
 > Confira que **não** aparecem `carteiras/`, `pdfs/`, `senha.local`. Se aparecerem,
 > pare e avise — o `.gitignore` deveria bloquear.
 
-## Passo 2 — Criar os 3 secrets ⚠️ (é o que protege tudo)
+## Passo 2 — Criar os 4 secrets ⚠️ (é o que protege tudo)
 
 No navegador: repositório → **Settings → Secrets and variables → Actions →
-New repository secret**. Crie os três:
+New repository secret**. Crie os quatro:
 
 **1. `MONITOR_SENHA`** — a senha de acesso ao painel.
 > Use uma senha **longa e aleatória** (ex.: `Cavalo-Nuvem-Terra-9182-Vento`).
@@ -53,6 +54,18 @@ BBAS3,Banco do Brasil,16.67
 ### Internacional
 ticker,empresa,peso,mercado
 QQQM,Invesco NASDAQ 100,36,US
+```
+
+**4. `MONITOR_SETORES`** — o mapa ticker→setor da "exposição por setor". Abra o
+arquivo **`setores.local.csv`** (também só na sua máquina), **copie tudo** e cole
+aqui. Sem este secret o painel funciona igual, só a quebra por setor fica vazia.
+O formato é uma linha por ativo (comentários com `#` e o cabeçalho são ignorados):
+
+```
+ticker,setor
+BBAS3,Banco
+KLBN11,Celulose
+VISC11,Shoppings Centers
 ```
 
 ## Passo 3 — Ligar o site (Pages na pasta `/docs`)
@@ -90,6 +103,12 @@ Mande o link para o time, e o usuário/senha **por canal privado** (não junto d
 2. Rode `python3 gerar_secret.py` — ele regera o `carteiras.local.txt`.
 3. Copie o conteúdo e **atualize o secret `MONITOR_CARTEIRAS`**.
 4. Aba **Actions → Run workflow** (ou espere o próximo ciclo).
+
+**Entrou um ticker NOVO (que ainda não tinha setor)?** Além do passo acima,
+adicione a linha `TICKER,Setor` no `setores.local.csv` e **atualize o secret
+`MONITOR_SETORES`** com o conteúdo novo. Sem isso, o ativo novo só fica de fora da
+quebra por setor (o resto funciona normal). Se só mudou o **peso** de ativos que
+já existiam, não precisa mexer no `MONITOR_SETORES`.
 
 **Trocar a senha?** Atualize o secret `MONITOR_SENHA` → **Run workflow**.
 

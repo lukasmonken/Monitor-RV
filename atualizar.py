@@ -109,22 +109,11 @@ BENCHMARKS = {
 }
 
 # Setor de cada ativo (por ticker; um ticker tem o mesmo setor em toda carteira).
-# Usado para a "exposição por setor". Ativos sem setor aqui não entram na quebra.
-SETORES = {
-    # Ações
-    "BBAS3": "Banco",          "BBDC4": "Banco",         "BMGB4": "Banco",
-    "ABCB4": "Banco",          "SLCE3": "Agronegócio",   "KLBN11": "Celulose",
-    "AZZA3": "Varejo de Moda", "PRIO3": "Petróleo e Gás","WIZC3": "Seguros",
-    "KEPL3": "Indústria",      "VAMO3": "Logística",     "SEER3": "Educação",
-    "BRST3": "Telecom",        "ALPK3": "Estacionamentos",
-    # FIIs (todos os "Recebíveis" juntos — middle risk + imobiliários)
-    "AFHI11": "Recebíveis", "OUJP11": "Recebíveis",
-    "KNCR11": "Recebíveis", "RBHG11": "Recebíveis",
-    "RBFM11": "Fundo de Fundos",          "RBRP11": "Lajes Corporativas",
-    "RCRB11": "Lajes Corporativas",       "RBVA11": "Varejo",
-    "RZAT11": "Galpões Logísticos",       "VILG11": "Galpões Logísticos",
-    "RZTR11": "Agronegócio",              "VISC11": "Shoppings Centers",
-}
+# Usado para a "exposição por setor". ATENÇÃO: a LISTA de tickers revelaria os
+# ativos das carteiras, então este mapa NÃO fica no repositório público — é
+# carregado por carregar_setores() (logo abaixo de carregar_carteiras) do secret
+# MONITOR_SETORES ou, na sua máquina, do arquivo setores.local.csv. Ativo sem
+# setor definido apenas não entra na quebra por setor.
 
 # Tradução dos setores GICS (usados nas ponderações setoriais dos ETFs internacionais).
 SETOR_EN_PT = {
@@ -269,6 +258,41 @@ def carregar_carteiras() -> dict[str, list[dict]]:
             resultado[nome] = ativos
             print(f"  • {nome:22s} {len(ativos):2d} ativos")
     return resultado
+
+
+def _parse_setores(linhas: list[str]) -> dict[str, str]:
+    """Converte linhas 'ticker,setor' num mapa {TICKER: setor}. Ignora linhas
+    vazias, comentários (#) e o cabeçalho 'ticker,setor'."""
+    mapa: dict[str, str] = {}
+    for linha in linhas:
+        s = linha.strip()
+        if not s or s.startswith("#"):
+            continue
+        partes = s.split(",", 1)
+        if len(partes) != 2:
+            continue
+        ticker = partes[0].strip().upper()
+        setor = partes[1].strip()
+        if not ticker or ticker == "TICKER" or not setor:
+            continue
+        mapa[ticker] = setor
+    return mapa
+
+
+def carregar_setores() -> dict[str, str]:
+    """Mapa {ticker: setor} para a 'exposição por setor'.
+    A LISTA de tickers é sensível (revelaria os ativos das carteiras), então NÃO
+    fica no repositório público:
+      1) do secret MONITOR_SETORES (é assim que roda no GitHub Actions);
+      2) senão, do arquivo setores.local.csv (uso local — está no .gitignore).
+    Ausente => mapa vazio: a quebra por setor apenas não aparece (sem erro)."""
+    texto = os.environ.get("MONITOR_SETORES", "") or _arquivo_local("setores.local.csv")
+    return _parse_setores(texto.splitlines())
+
+
+# Carregado uma vez, no import (como USUARIO/SENHA). Usado em main() ao montar a
+# "exposição por setor". Sem o secret/arquivo, fica {} e a quebra some sem erro.
+SETORES = carregar_setores()
 
 
 # --------------------------------------------------------------------------- #
@@ -481,6 +505,11 @@ def main() -> None:
         print("\nNenhuma carteira encontrada. Coloque CSVs em carteiras/ "
               "(colunas: ticker,empresa,peso) e rode de novo.")
         sys.exit(1)
+    if SETORES:
+        print(f"  Setores: {len(SETORES)} tickers mapeados.")
+    else:
+        print("  Aviso: sem mapa de setores (defina o secret MONITOR_SETORES ou o")
+        print("         arquivo setores.local.csv) — a quebra por setor ficará vazia.")
 
     mapa_yahoo: dict[str, str] = {}
     moeda_por_ticker: dict[str, str] = {}
