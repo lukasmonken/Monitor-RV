@@ -415,18 +415,115 @@
   const loginBox = el("login"), appBox = el("app");
   const formLogin = el("formLogin"), erroLogin = el("erroLogin"), btnEntrar = el("btnEntrar");
 
-  // Carrega o arquivo cifrado. Em http/https adiciona ?t= para furar o cache do
-  // GitHub Pages (dados novos a cada atualização); em file:// carrega direto.
-  function carregarDados(){
+  // ---------- DE ONDE VEM O dados.enc.js ----------
+  // O mesmo arquivo fica disponível em dois lugares: aqui no GitHub Pages, ao
+  // lado desta página, e direto no repositório, pelo raw.githubusercontent.
+  // Pedimos ao raw de propósito.
+  //
+  // O Pages não publica no commit: quem leva o arquivo pro ar é um segundo job
+  // ("pages build and deployment"), que não é nosso e entra numa fila do GitHub.
+  // Normalmente ele leva ~25s, mas em 24/07/2026 travou por 15 min e foi
+  // cancelado pelo push do ciclo seguinte — a rodada das 13:07 nunca chegou ao
+  // site e a página passou 20 min mostrando as 12:52. O raw enxerga o commit na
+  // hora, então tira esse job do caminho dos dados. De quebra, o cache de borda
+  // do raw é de 5 min contra os 10 min do Pages.
+  //
+  // Se um dia o repositório mudar de dono, nome ou branch, é esta linha que muda.
+  const RAW_DADOS = "https://raw.githubusercontent.com/lukasmonken/Monitor-RV/main/docs/dados.enc.js";
+
+  // Em desenvolvimento (localhost) o raw não resolve problema nenhum e ainda
+  // atrapalha: você mexe no docs/dados.enc.js do disco e a tela teima em mostrar
+  // o dado de produção. Só o site publicado vai ao raw.
+  const EH_LOCAL = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(location.hostname);
+
+  // De onde os dados vieram de fato na última tentativa. Se o raw quebrar (repo
+  // renomeado, fora do ar), a página continua funcionando pelo plano B — e essa
+  // é justamente a hora em que ninguém percebe que o conserto parou de valer.
+  // Por isso a origem aparece na linha do rodapé do cabeçalho.
+  let origemDados = "raw";
+
+  // O arquivo é "window.DADOS_CIFRADO = {…};". Vindo por fetch ele é texto, então
+  // recortamos o objeto do meio em vez de executar — do primeiro "{" ao último
+  // "}", o que também nos deixa indiferentes ao nome da variável.
+  function extrairCifrado(txt){
+    const i = txt.indexOf("{"), j = txt.lastIndexOf("}");
+    if(i < 0 || j < i) throw new Error("formato inesperado em dados.enc.js");
+    return JSON.parse(txt.slice(i, j + 1));
+  }
+  // Antes o envelope vinha da mesma origem da página; agora vem de fora. Conferir
+  // o formato aqui é barato e evita entregar lixo ao WebCrypto — um "iter"
+  // absurdo, por exemplo, congelaria a aba derivando chave. Envelope reprovado
+  // vira exceção, e a exceção aciona o plano B.
+  function validarEnvelope(o){
+    const txt = s => typeof s === "string" && s.length > 0;
+    if(o.kdf !== "PBKDF2-SHA256" || !Number.isInteger(o.iter) || o.iter < 100000 || o.iter > 2000000
+       || !txt(o.salt) || !txt(o.iv) || !txt(o.ct) || o.ct.length > 5e6)
+      throw new Error("envelope inválido em dados.enc.js");
+    return o;
+  }
+  // Plano B: o arquivo servido junto com a página. Serve para file:// e localhost
+  // (onde não faz sentido ir ao raw) e para quando o raw não responde. Continua
+  // por tag <script> porque em file:// é o único jeito que funciona. O prazo
+  // existe porque tag <script> que nunca dispara load nem error deixaria a
+  // promessa pendurada para sempre, e com ela o ciclo de atualização.
+  function baixarCifradoLocal(){
+    return new Promise((ok, falha)=>{
+      const s = document.createElement("script");
+      const prazo = setTimeout(()=>{ s.remove(); falha(new Error("tempo esgotado no arquivo local")); }, 15000);
+      const fim = fn => (...a)=>{ clearTimeout(prazo); s.remove(); fn(...a); };
+      s.src = "dados.enc.js" + (location.protocol.indexOf("http")===0 ? ("?t="+Date.now()) : "");
+      s.onload  = fim(()=> ok(window.DADOS_CIFRADO));
+      s.onerror = fim(()=> falha(new Error("falha ao baixar")));
+      document.head.appendChild(s);
+    });
+  }
+  // Sem "?t=" de propósito: medi que nem o Pages nem o raw põem a query string na
+  // chave do cache de borda deles (o "age" da resposta segue correndo com ?t=
+  // diferente), então ele só enganava o cache do navegador — e ao custo de baixar
+  // os 48 KB inteiros a cada minuto. Com "no-cache" o navegador revalida usando o
+  // ETag que o raw manda e recebe 304 vazio quando nada mudou. O piso de frescor
+  // é o mesmo nos dois casos: o TTL de 5 min da borda.
+  // O prazo de 8s importa: sem ele, uma requisição pendurada trava o ciclo de
+  // atualização inteiro, já que a próxima rodada só é marcada quando esta acaba.
+  async function baixarCifrado(){
+    if(EH_LOCAL || location.protocol.indexOf("http") !== 0) return baixarCifradoLocal();
+    const ac = new AbortController();
+    const prazo = setTimeout(()=> ac.abort(), 8000);
+    try{
+      const r = await fetch(RAW_DADOS, { cache: "no-cache", signal: ac.signal });
+      if(!r.ok) throw new Error("raw respondeu " + r.status);
+      const env = validarEnvelope(extrairCifrado(await r.text()));
+      origemDados = "raw";
+      return env;
+    }catch(e){
+      console.warn("[monitor] raw indisponível, usando a cópia do Pages:", e);
+      origemDados = "pages";
+      return baixarCifradoLocal();
+    }finally{
+      clearTimeout(prazo);
+    }
+  }
+
+  // Carrega o arquivo cifrado e, com ele na mão, tenta o login automático.
+  // O botão fica travado enquanto isso: o formulário já está de pé e utilizável
+  // muito antes de os dados chegarem — e mais ainda desde que a busca virou um
+  // fetch cross-origin, com DNS e TLS para um host que a página ainda não tinha
+  // visitado. Quem apertasse Entrar nessa janela levava "senha incorreta".
+  async function carregarDados(){
     if(!(window.crypto && crypto.subtle)){
       erroLogin.textContent = "Este navegador não suporta a descriptografia (abra pelo link https).";
       return;
     }
-    const s = document.createElement("script");
-    s.src = "dados.enc.js" + (location.protocol.indexOf("http")===0 ? ("?t="+Date.now()) : "");
-    s.onload = prontidao;
-    s.onerror = ()=>{ erroLogin.textContent = "Arquivo de dados (dados.enc.js) não encontrado."; };
-    document.head.appendChild(s);
+    btnEntrar.disabled = true; btnEntrar.textContent = "Carregando…";
+    try{
+      window.DADOS_CIFRADO = await baixarCifrado();
+    }catch(e){
+      erroLogin.textContent = "Arquivo de dados (dados.enc.js) não encontrado.";
+      return;
+    }finally{
+      btnEntrar.disabled = false; btnEntrar.textContent = "Entrar";
+    }
+    prontidao();
   }
   function prontidao(){
     if(!window.DADOS_CIFRADO){
@@ -441,19 +538,37 @@
 
   async function tentarLogin(usuario, senha, silencioso){
     erroLogin.textContent = "";
+    // Enter no campo de senha submete mesmo com o botão travado, então a porta
+    // de verdade é esta: sem dado, não há o que decifrar, e o problema não é
+    // a senha de ninguém.
+    if(!window.DADOS_CIFRADO){
+      if(!silencioso) erroLogin.textContent = "Ainda carregando os dados — tente de novo em instantes.";
+      return;
+    }
     btnEntrar.disabled = true; btnEntrar.textContent = "Entrando…";
+    let dados;
     try{
-      D = await decifrar(window.DADOS_CIFRADO, usuario, senha);
-      try{ sessionStorage.setItem(CHAVE_SESSAO, JSON.stringify({u:usuario,s:senha})); }catch(e){}
-      loginBox.style.display = "none";
-      appBox.style.display = "block";
-      iniciarApp();
+      dados = await decifrar(window.DADOS_CIFRADO, usuario, senha);
     }catch(e){
-      if(!silencioso) erroLogin.textContent = "Usuário ou senha incorretos.";
-      try{ sessionStorage.removeItem(CHAVE_SESSAO); }catch(_){}
+      // Só senha errada de fato invalida a credencial guardada. O AES-GCM
+      // rejeita com OperationError quando a chave não bate; qualquer outra
+      // coisa (rede, base64 torto, dado ausente) é problema nosso, não do
+      // usuário — e apagar a sessão dele nesse caso seria destruir credencial
+      // boa e ainda mentir dizendo que a senha estava errada.
+      const senhaErrada = e && e.name === "OperationError";
+      if(!silencioso) erroLogin.textContent = senhaErrada
+        ? "Usuário ou senha incorretos."
+        : "Não foi possível abrir os dados. Tente de novo em instantes.";
+      if(senhaErrada){ try{ sessionStorage.removeItem(CHAVE_SESSAO); }catch(_){} }
+      return;
     }finally{
       btnEntrar.disabled = false; btnEntrar.textContent = "Entrar";
     }
+    D = dados;
+    try{ sessionStorage.setItem(CHAVE_SESSAO, JSON.stringify({u:usuario,s:senha})); }catch(e){}
+    loginBox.style.display = "none";
+    appBox.style.display = "block";
+    iniciarApp();   // fora do try: falha ao montar o painel não é senha errada
   }
 
   formLogin.addEventListener("submit", e=>{
@@ -520,10 +635,13 @@
 
   // "atualizado_em" vem carimbado em horário de Brasília (UTC-3 o ano inteiro,
   // já que o país acabou com o horário de verão em 2019).
+  function carimboEmMs(s){
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/.exec(s || "");
+    return m ? Date.UTC(+m[3], +m[2]-1, +m[1], +m[4]+3, +m[5]) : null;
+  }
   function idadeDados(){
-    const m = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/.exec((D && D.atualizado_em) || "");
-    if(!m) return null;
-    const t = Date.UTC(+m[3], +m[2]-1, +m[1], +m[4]+3, +m[5]);
+    const t = carimboEmMs(D && D.atualizado_em);
+    if(t == null) return null;
     return Math.max(0, Math.round((Date.now() - t)/60000));
   }
   function statusMercado(){
@@ -556,7 +674,10 @@
     const difere = D.data_pregao && D.data_pregao !== diaAtualiz;
     el("sub").textContent = `Atualizado em ${D.atualizado_em || "—"}`
       + (idade == null ? "" : ` · há ${idade === 0 ? "instantes" : idade + " min"}`)
-      + (difere ? ` · cotações de ${D.data_pregao}` : "");
+      + (difere ? ` · cotações de ${D.data_pregao}` : "")
+      // A queda para o plano B não pode ser invisível: o site segue de pé, e é
+      // exatamente aí que ninguém nota que voltamos a depender da fila do Pages.
+      + (origemDados === "pages" ? " · via Pages" : "");
   }
 
   // ---------- ATUALIZAÇÃO AUTOMÁTICA ----------
@@ -570,15 +691,6 @@
   const POLL_ABERTO = 60000, POLL_FECHADO = 600000;
   let timerSync = null, sincronizando = false;
 
-  function baixarCifrado(){
-    return new Promise((ok, falha)=>{
-      const s = document.createElement("script");
-      s.src = "dados.enc.js?t=" + Date.now();   // fura o cache do GitHub Pages
-      s.onload  = ()=>{ s.remove(); ok(window.DADOS_CIFRADO); };
-      s.onerror = ()=>{ s.remove(); falha(new Error("falha ao baixar")); };
-      document.head.appendChild(s);
-    });
-  }
   // Fotografa o texto de cada caixa "viva" antes de redesenhar, para saber
   // depois quais números realmente mudaram e acender só esses.
   function fotoVivas(){
@@ -604,7 +716,14 @@
     sincronizando = true;
     try{
       const novo = await decifrar(await baixarCifrado(), cred.u, cred.s);
-      if(novo.atualizado_em !== D.atualizado_em){
+      // Só troca por dado mais novo. Se o raw falhar e o plano B trouxer o
+      // arquivo do Pages — que costuma estar um ciclo atrás —, o carimbo é
+      // diferente mas mais velho, e trocar faria os números andarem para trás.
+      const tNovo = carimboEmMs(novo.atualizado_em), tAgora = carimboEmMs(D.atualizado_em);
+      const avancou = (tNovo == null || tAgora == null)
+        ? novo.atualizado_em !== D.atualizado_em
+        : tNovo > tAgora;
+      if(avancou){
         const antes = fotoVivas();
         const tab = document.querySelector("#view .tablewrap");
         const rolagem = tab ? tab.scrollTop : 0;
@@ -624,7 +743,12 @@
   function agendarSync(){
     clearTimeout(timerSync);
     const espera = statusMercado().cls === "fechado" ? POLL_FECHADO : POLL_ABERTO;
-    timerSync = setTimeout(async ()=>{ await sincronizar(); agendarSync(); }, espera);
+    // Reagenda sem esperar o fim da rodada. Antes o próximo tique só era marcado
+    // depois do await, então bastava uma sincronização não terminar para o
+    // auto-refresh morrer calado e para sempre. A trava "sincronizando" já
+    // impede duas rodadas ao mesmo tempo, e os prazos de baixarCifrado garantem
+    // que nenhuma rodada fica pendurada.
+    timerSync = setTimeout(()=>{ agendarSync(); sincronizar(); }, espera);
   }
   // Aba escondida não gasta rede; ao voltar, confere na hora.
   document.addEventListener("visibilitychange", ()=>{

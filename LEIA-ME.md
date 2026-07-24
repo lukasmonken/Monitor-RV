@@ -17,14 +17,31 @@ Identidade visual VAROS: fundo preto, paleta verde-turquesa, fonte Instrument Sa
    │ atualizar.py │  calcula e CIFRA os    │ docs/dados.enc.js  │  descriptografa │  docs/index.html │
    │   (Python)   │ ─────────────────────► │  (cifrado)         │ ──────────────► │   (interface)    │
    └──────────────┘                        └───────────────────┘   no navegador  └──────────────────┘
-     roda na nuvem                                                                a equipe acessa
-     a cada 15 min                                                                por um link
+     roda na nuvem                            lido pelo raw.                      a equipe acessa
+     a cada 15 min                            githubusercontent                   por um link
 ```
 
 - **O Python faz o trabalho pesado**: lê as carteiras, busca preços no Yahoo,
   calcula as variações ponderadas e os benchmarks, e **cifra tudo** (AES-256).
 - **O navegador é a vitrine**: com o login e a senha certos, ele descriptografa
   o arquivo ali mesmo (Web Crypto) e desenha o painel. Sem a senha, é ilegível.
+
+### De onde a página lê os dados
+
+A página é servida pelo GitHub Pages, mas o `dados.enc.js` ela busca **direto no
+repositório**, pelo `raw.githubusercontent.com`. Isso é de propósito.
+
+Publicar no Pages não acontece no commit: depois de cada push, um segundo job do
+GitHub (o `pages build and deployment`, que não é nosso e entra numa fila) é quem
+leva o arquivo pro ar. Normalmente ele leva ~25s — mas em 24/07/2026 travou por
+15 min e foi cancelado pelo push do ciclo seguinte, e a rodada daquele ciclo
+simplesmente nunca chegou ao site. Somava-se a isso o cache de borda do Pages, de
+10 min, que ignora a query string (o velho truque do `?t=` só enganava o cache do
+navegador). O raw enxerga o commit na hora e tem cache de 5 min, ou seja: menos da
+metade do ciclo de 15 min, então nenhuma rodada se perde.
+
+Se o raw não responder, a página cai no arquivo do próprio Pages — e nunca troca
+o que está na tela por um dado com carimbo mais **velho** que o já exibido.
 
 ---
 
