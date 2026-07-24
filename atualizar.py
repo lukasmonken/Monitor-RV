@@ -29,6 +29,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -442,7 +443,15 @@ def buscar_setores_etfs(etf_map: dict) -> dict:
         dist: dict[str, float] = {}
         for en, v in sw.items():
             if v and v > 0:
-                pt = SETOR_EN_PT.get(en, en.replace("_", " ").title())
+                pt = SETOR_EN_PT.get(en)
+                if pt is None:
+                    # Setor fora do dicionário: o rótulo viria cru do Yahoo. As
+                    # chaves GICS são ASCII, então manter só letras e espaço
+                    # impede qualquer caractere de marcação de chegar à página
+                    # (a página já escapa, mas a fonte também não deve confiar).
+                    pt = re.sub(r"[^A-Za-z ]", "", en.replace("_", " ")).strip().title()
+                    if not pt:
+                        continue
                 dist[pt] = dist.get(pt, 0.0) + float(v)
         if dist:
             out[tk] = dist

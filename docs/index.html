@@ -333,6 +333,12 @@
   // "na" (neutro) p/ nulo OU valor que arredonda a 0,00% — evita verde/vermelho no ~zero.
   const classe = r => (r==null || Math.abs(r*100) < 0.005) ? "na" : (r>0 ? "up" : "down");
   // Chip "USD" para carteiras com ativos em dólar (ex.: as internacionais).
+  // Neutraliza texto antes de injetá-lo com innerHTML. Nomes de setor vêm do
+  // Yahoo (via ETF), e empresa/ticker/carteira vêm dos secrets: nenhum é código,
+  // mas o navegador executaria o que parecesse HTML. Escapar os 5 caracteres
+  // perigosos faz tudo isso virar texto puro. Acentos não são tocados.
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const moedaTag = c => (c.ativos && c.ativos.some(a=>a.moeda==="USD"))
     ? ' <span class="moeda-tag" title="Ativos cotados em dólar">USD</span>' : '';
   const fmtMil = (v, pre) => v==null ? "" : pre + " " + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -848,14 +854,14 @@
   function barrasSetor(setores){
     if(!setores || !setores.length) return '<div class="n">sem setor definido</div>';
     return setores.map((s,k)=>`<div class="sl">
-      <div class="sltop"><span class="sn">${s.setor}</span><span class="sp">${fmtPeso(s.pct)}</span></div>
+      <div class="sltop"><span class="sn">${esc(s.setor)}</span><span class="sp">${fmtPeso(s.pct)}</span></div>
       <div class="sbar"><span style="width:${Math.min(100,s.pct)}%; background:${CORES_SETOR[k%CORES_SETOR.length]}"></span></div>
     </div>`).join("");
   }
   function renderSetores(vis){
     const cards = vis.filter(({c}) => c.tipo !== "cripto").map(({c,i})=>
       `<div class="cart" onclick="__abrir(${i})">
-        <div class="top"><span class="topname"><span class="nome">${c.nome}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
+        <div class="top"><span class="topname"><span class="nome">${esc(c.nome)}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
         <div class="setlist">${barrasSetor(c.setores)}</div>
       </div>`
     ).join("");
@@ -868,7 +874,7 @@
     if(estado.exibir === "setores") return renderSetores(vis);
     const cards = vis.map(({c,i})=>
       `<div class="cart" onclick="__abrir(${i})">
-        <div class="top"><span class="topname"><span class="nome">${c.nome}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
+        <div class="top"><span class="topname"><span class="nome">${esc(c.nome)}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
         <div class="sparkbox">${sparkline(c.spark, 320, 40) || '<span class="n">sem histórico</span>'}</div>
         <div class="peri${c.tipo==='cripto'?' peri3':''}">${caixas(c, "p")}</div>
       </div>`
@@ -885,11 +891,11 @@
                            .sort((a,b)=>b.retornos[p] - a.retornos[p]).slice(0, 3);
       const baixas = comDado.filter(a=>a.retornos[p]*100 <= -0.005)
                             .sort((a,b)=>a.retornos[p] - b.retornos[p]).slice(0, 3);
-      const linha = a => `<div class="dl"><span class="dtk">${a.ticker}</span>`
+      const linha = a => `<div class="dl"><span class="dtk">${esc(a.ticker)}</span>`
         + `<span class="dv ${classe(a.retornos[p])}">${fmtPct(a.retornos[p])}</span></div>`;
       const vazio = t => `<div class="dl"><span class="nm">${t}</span></div>`;
       return `<div class="cart" onclick="__abrir(${i})">
-        <div class="top"><span class="topname"><span class="nome">${c.nome}</span>${moedaTag(c)}</span><span class="n">${({dia:'hoje',semana:'na semana',mes:'últimos 30 dias'})[p]||('em '+D.periodos[p])}</span></div>
+        <div class="top"><span class="topname"><span class="nome">${esc(c.nome)}</span>${moedaTag(c)}</span><span class="n">${({dia:'hoje',semana:'na semana',mes:'últimos 30 dias'})[p]||('em '+D.periodos[p])}</span></div>
         <div class="dcols">
           <div class="dcol"><div class="dhead up">▲ Maiores altas</div>${altas.map(linha).join("")||vazio("nenhuma alta")}</div>
           <div class="dcol"><div class="dhead down">▼ Maiores baixas</div>${baixas.map(linha).join("")||vazio("nenhuma baixa")}</div>
@@ -936,7 +942,7 @@
       const cell = p => `<td class="${classe(ar[p])}${col(p)}">${fmtPct(ar[p])}</td>`;
       const tagMoeda = a.moeda==="USD" ? ' <span style="color:var(--accent-d)">· US$</span>' : "";
       return `<tr>
-        <td class="lft"><span class="tk">${a.ticker}</span><br><span class="nm">${a.empresa||""}${a.setor?" · "+a.setor:""}${tagMoeda}</span></td>
+        <td class="lft"><span class="tk">${esc(a.ticker)}</span><br><span class="nm">${esc(a.empresa||"")}${a.setor?" · "+esc(a.setor):""}${tagMoeda}</span></td>
         <td class="lft">${sparkline(a.spark, 92, 26)}</td>
         <td class="peso${col('peso')}">${fmtPeso(a.peso)}</td>
         <td class="price">${fmtPreco(a.preco, a.moeda)}</td>
@@ -947,7 +953,7 @@
     el("view").innerHTML = `
       <div class="det-head">
         <div>
-          <div class="det-title"><span class="topname">${c.nome}${moedaTag(c)}</span><span class="n">${c.n_ativos} ativo${c.n_ativos===1?'':'s'}${avisoPeso}</span></div>
+          <div class="det-title"><span class="topname">${esc(c.nome)}${moedaTag(c)}</span><span class="n">${c.n_ativos} ativo${c.n_ativos===1?'':'s'}${avisoPeso}</span></div>
           <div class="sub"><span class="link" onclick="__abrir('__home__')">← voltar para a visão geral</span></div>
         </div>
         <div class="det-tiles">${tiles}</div>
