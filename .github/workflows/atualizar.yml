@@ -3,11 +3,13 @@ name: Atualizar monitor de carteiras
 # Quando rodar:
 on:
   schedule:
-    # A cada 15 minutos, das 13h às 20h UTC (10h às 17h45 de Brasília), seg-sex.
-    # Cobre o pregão da B3 + início do after-market. Fora disso não roda (economia).
-    # Obs.: o GitHub pode atrasar execuções agendadas em horários de pico — o
-    # intervalo real fica em ~15-20 min. É o normal do plano gratuito.
-    - cron: "*/15 13-20 * * 1-5"
+    # A cada 15 minutos, das 13h às 21h UTC (10h às 18h45 de Brasília), seg-sex.
+    # Cobre o pregão da B3 + after-market. Fora disso não roda (economia).
+    # IMPORTANTE: os minutos NÃO são 0/15/30/45 de propósito. A fila de agendados
+    # do GitHub entope na virada do quarto de hora e ele simplesmente descarta as
+    # execuções em vez de atrasá-las. Minutos "quebrados" caem numa fila vazia e
+    # disparam muito mais confiavelmente. Se mexer aqui, mantenha o desalinhamento.
+    - cron: "7,22,37,52 13-21 * * 1-5"
   workflow_dispatch: {}   # botão para rodar manualmente quando quiser
 
 # O robô precisa gravar o dados.enc.js atualizado de volta no repositório.
