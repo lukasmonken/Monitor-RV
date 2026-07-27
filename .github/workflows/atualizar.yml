@@ -51,6 +51,11 @@ jobs:
           # As carteiras (ativos recomendados) NÃO ficam no repositório público:
           # vêm deste secret. Formato: blocos "### Nome" + CSV.
           MONITOR_CARTEIRAS: ${{ secrets.MONITOR_CARTEIRAS }}
+          # O mapa ticker->setor também não fica no repositório (a lista de
+          # tickers revelaria os ativos). Formato: linhas "TICKER,Setor".
+          # Se faltar, a "exposição por setor" das carteiras BR fica vazia
+          # (as internacionais não usam este mapa: vêm dos ETFs no Yahoo).
+          MONITOR_SETORES:   ${{ secrets.MONITOR_SETORES }}
         run: python atualizar.py
 
       - name: Publicar os dados atualizados

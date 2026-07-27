@@ -510,6 +510,14 @@ def main() -> None:
     else:
         print("  Aviso: sem mapa de setores (defina o secret MONITOR_SETORES ou o")
         print("         arquivo setores.local.csv) — a quebra por setor ficará vazia.")
+        # No GitHub Actions, "::warning::" vira um aviso destacado no resumo da
+        # execução. Sem isso o problema fica enterrado no log e o site publica a
+        # quebra por setor vazia sem ninguém perceber (foi o que aconteceu em
+        # 24/07/2026: o secret existia, mas faltava passá-lo no atualizar.yml).
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print("::warning title=Sem mapa de setores::O secret MONITOR_SETORES "
+                  "chegou vazio. Confira se ele existe e se está listado no bloco "
+                  "'env:' do .github/workflows/atualizar.yml.")
 
     mapa_yahoo: dict[str, str] = {}
     moeda_por_ticker: dict[str, str] = {}
