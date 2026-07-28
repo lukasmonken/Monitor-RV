@@ -650,6 +650,20 @@
     if(t == null) return null;
     return Math.max(0, Math.round((Date.now() - t)/60000));
   }
+  // Fim de semana e feriado empilham minutos até virar "há 4230 min", que ninguém
+  // lê. Passando de 1 h (e de 1 dia) trocamos de unidade e mostramos só as duas
+  // maiores — a unidade menor some quando é zero ("há 2 dias", não "e 0 horas").
+  function fmtIdade(min){
+    if(min <= 0) return "instantes";
+    if(min < 60) return `${min} min`;
+    const h = Math.floor(min/60);
+    if(h < 24){
+      const r = min % 60;
+      return `${h} ${h===1?"hora":"horas"}` + (r ? ` e ${r} min` : "");
+    }
+    const d = Math.floor(h/24), rh = h % 24;
+    return `${d} ${d===1?"dia":"dias"}` + (rh ? ` e ${rh} ${rh===1?"hora":"horas"}` : "");
+  }
   function statusMercado(){
     const n = agoraBR();
     const hoje = `${n.ano}-${String(n.mes).padStart(2,"0")}-${String(n.dia).padStart(2,"0")}`;
@@ -659,8 +673,10 @@
       return { cls:"fechado", txt:"Mercado fechado", dica:"Fora do pregão regular da B3 (10h–18h)" };
     const idade = idadeDados();
     if(idade != null && idade > ATRASO_MAX)
-      return { cls:"atraso", txt:`Sem dado novo há ${idade} min`,
-               dica:"O robô atualiza a cada ~15 min; passou disso sem trazer nada novo." };
+      // Sem o tempo aqui: o "há X" da linha ao lado já diz há quanto tempo, e
+      // repetir só ocupava o selo com um número que o leitor já tinha lido.
+      return { cls:"atraso", txt:"Sem dado novo",
+               dica:"O robô atualiza a cada ~15 min; passou disso sem trazer nada novo. Há quanto tempo, ao lado." };
     return { cls:"aberto", txt:"Mercado aberto", dica:"Pregão regular da B3 (10h–18h)" };
   }
 
@@ -679,7 +695,7 @@
     const diaAtualiz = (D.atualizado_em || "").split(" ")[0];
     const difere = D.data_pregao && D.data_pregao !== diaAtualiz;
     el("sub").textContent = `Atualizado em ${D.atualizado_em || "—"}`
-      + (idade == null ? "" : ` · há ${idade === 0 ? "instantes" : idade + " min"}`)
+      + (idade == null ? "" : ` · há ${fmtIdade(idade)}`)
       + (difere ? ` · cotações de ${D.data_pregao}` : "")
       // A queda para o plano B não pode ser invisível: o site segue de pé, e é
       // exatamente aí que ninguém nota que voltamos a depender da fila do Pages.
