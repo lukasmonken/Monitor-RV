@@ -1,0 +1,232 @@
+name: Repescagem da atualização
+
+# Por que este arquivo existe (06/08/2026):
+# O "Atualizar monitor de carteiras" quebrou várias vezes num incidente do próprio
+# GitHub — o runner não conseguia BAIXAR as actions (actions/checkout,
+# actions/setup-python) e morria no "Set up job", antes de rodar qualquer passo
+# nosso. Erro na tela: "Failed to resolve action download info / Bad Gateway".
+# Quando isso acontece, o dado da página fica parado até a rodada seguinte
+# (15 min), e ninguém fica sabendo: as rodadas vêm do cron-job.org como
+# workflow_dispatch, e o GitHub só manda e-mail automático de falha para as
+# rodadas de "schedule".
+#
+# Este workflow resolve os dois lados: manda rodar de novo em ~1,5 min e, se a
+# segunda tentativa também não der certo, abre um aviso em issue.
+#
+# Quatro decisões de desenho que não são acidente (a revisão de 06/08 derrubou
+# a primeira versão deste arquivo exatamente nesses pontos):
+#
+# 1. NENHUMA action do marketplace — só o gh CLI que já vem no runner. O erro
+#    que motivou o arquivo foi "não consegui baixar a action"; um remédio que
+#    precisasse baixar action quebraria junto com a doença.
+# 2. O veredito vem da CONCLUSÃO da rodada, lida na API, nunca do exit code do
+#    `gh run watch`. O watch sai não-zero por três motivos que não são "falhou":
+#    soluço de rede no meio do acompanhamento, rodada cancelada porque uma mais
+#    nova tomou o lugar na fila, e leitura de estado velho (o rerun é assíncrono
+#    — logo depois do pedido, a API ainda mostra a tentativa 1 falhada).
+# 3. Toda leitura de API tem plano B (`|| echo ...`). Este workflow só roda
+#    quando o GitHub já está mal; um 502 passageiro não pode nem matar o aviso
+#    nem virar alarme falso. Na dúvida REAL (não deu para ler nada), avisa.
+# 4. O passo do aviso roda com `failure() || cancelled()`. Só `failure()` não
+#    roda quando o job é CANCELADO pelo timeout-minutes — e esse é justamente
+#    o pior caso (tudo travado por 20 min), que não pode ficar mudo.
+
+on:
+  workflow_run:
+    # Precisa bater com o "name:" lá do atualizar.yml, letra por letra.
+    workflows: ["Atualizar monitor de carteiras"]
+    types: [completed]
+
+permissions:
+  actions: write    # mandar a rodada que falhou rodar de novo
+  contents: read
+  issues:  write    # abrir o aviso quando a repescagem também não resolver
+
+jobs:
+  repescar:
+    # Só quando falhou DE VERDADE (cancelada ou pulada não conta) e só na
+    # primeira tentativa. Sem o teste do run_attempt, uma falha permanente (um
+    # erro no atualizar.py, por exemplo) viraria um laço infinito de reruns.
+    if: >
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    # Orçamento de tempo do pior caminho: 90s de respiro + ~4,5 min esperando a
+    # tentativa 2 aparecer + 10 min de acompanhamento + o aviso ≈ 17 min.
+    # Se ainda assim estourar, o job é CANCELADO (não "falha") — daí o
+    # failure() || cancelled() no passo do aviso.
+    timeout-minutes: 20
+    steps:
+      - name: Mandar rodar de novo
+        id: rerun
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID:   ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          # O respiro serve para não tentar de novo no auge da instabilidade.
+          sleep 90
+          echo "Mandando a rodada $RUN_ID tentar de novo."
+          gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY"
+
+      - name: Acompanhar a segunda tentativa
+        id: segunda
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID:   ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          # FASE 1 — esperar a tentativa 2 EXISTIR. O rerun é assíncrono: o
+          # pedido volta aceito antes de a rodada sair de "completed". Quem
+          # consulta cedo demais lê o estado VELHO da tentativa 1 (falhada) e
+          # conclui errado. Então só seguimos quando o número da tentativa
+          # subir. O `|| echo ""` é obrigatório: sem ele, um 502 passageiro
+          # mataria o passo (set -e) e dispararia exatamente o alarme falso
+          # que esta espera existe para evitar.
+          TEM2=""
+          for _ in $(seq 1 40); do
+            AGORA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+                      --jq '.run_attempt' 2>/dev/null || echo "")
+            case "$AGORA" in (''|*[!0-9]*) AGORA=0 ;; esac
+            if [ "$AGORA" -ge 2 ]; then TEM2=1; break; fi
+            sleep 6
+          done
+          if [ -z "$TEM2" ]; then
+            # O pedido foi aceito mas a tentativa não apareceu: não há
+            # evidência de falha nenhuma. Melhor perder este aviso do que
+            # alarmar sem base — o ciclo normal de 15 min cobre o buraco.
+            echo "::warning::Rerun aceito, mas a 2a tentativa nao apareceu na API. Sem base para afirmar falha; nao vou alarmar."
+            exit 0
+          fi
+
+          # FASE 2 — esperar ela TERMINAR, com prazo próprio (10 min) para o
+          # job nunca morrer no timeout com a decisão pela metade. O watch é
+          # só o log ao vivo: o `|| true` ignora o exit code dele DE PROPÓSITO
+          # (decisão 2 lá no topo), e ele morre fácil num soluço de rede — por
+          # isso quem garante a espera é o laço de status abaixo, ancorado no
+          # relógio. Sem ele, um watch morto em 1s faria a FASE 3 ler uma
+          # rodada ainda EM ANDAMENTO e alarmar à toa.
+          FIM=$(( $(date -u +%s) + 600 ))
+          timeout 600 gh run watch "$RUN_ID" --interval 15 --repo "$GITHUB_REPOSITORY" || true
+          while :; do
+            ST=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+                   --jq '.status' 2>/dev/null || echo "")
+            [ "$ST" = "completed" ] && break
+            [ "$(date -u +%s)" -ge "$FIM" ] && break
+            sleep 15
+          done
+
+          # FASE 3 — o veredito de verdade: a conclusão lida na API. Se nem
+          # isso der para ler, vira "desconhecido" — e desconhecido ALARMA
+          # (aqui já houve falha confirmada antes; na dúvida, avisar).
+          CONC=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+                   --jq '.conclusion // "desconhecido"' 2>/dev/null || echo "desconhecido")
+          echo "conclusao=$CONC" >> "$GITHUB_OUTPUT"
+          echo "Conclusão da 2ª tentativa: $CONC"
+          case "$CONC" in
+            success)
+              echo "Repescagem deu certo." ;;
+            cancelled|skipped)
+              # Cancelada quase sempre = uma rodada MAIS NOVA tomou o lugar na
+              # fila do grupo "atualizar-monitor" (o GitHub cancela a pendente
+              # quando outra entra). A página fica em dia do mesmo jeito —
+              # mesma regra do "if:" do job: cancelada não conta.
+              echo "Cancelada/pulada: rodada mais nova assumiu. Não alerta." ;;
+            *)
+              # failure, timed_out, startup_failure, desconhecido...
+              echo "A segunda tentativa não terminou bem."; exit 1 ;;
+          esac
+
+      - name: Abrir ou atualizar o aviso de falha
+        # failure() sozinho NÃO roda quando o job é cancelado pelo timeout — e
+        # esse é o pior caso (tudo travado). O cancelled() cobre esse buraco.
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN:      ${{ github.token }}
+          RUN_URL:       ${{ github.event.workflow_run.html_url }}
+          RERUN_OUTCOME: ${{ steps.rerun.outcome }}
+          CONC:          ${{ steps.segunda.outputs.conclusao }}
+          JOB_STATUS:    ${{ job.status }}
+        run: |
+          set -euo pipefail
+
+          # ATENÇÃO: o repositório é PÚBLICO, então esta issue é pública. Nada
+          # de ticker, carteira, senha ou nome de secret no texto — só o link
+          # da rodada e metadados que já são públicos de qualquer jeito.
+          ETIQUETA="falha-atualizacao"
+          TITULO="Atualização automática do monitor falhando"
+
+          # --force cria a etiqueta se não existir e não reclama se já existir.
+          gh label create "$ETIQUETA" --color B60205 \
+            --description "Rodada do monitor falhou mesmo depois da repescagem" \
+            --force --repo "$GITHUB_REPOSITORY" || true
+
+          # A primeira linha diz a VERDADE de cada caso — sem afirmar que "a
+          # repescagem também falhou" quando ela nem chegou a acontecer.
+          if [ "$RERUN_OUTCOME" = "failure" ]; then
+            ABERTURA="A atualização falhou e nem deu para pedir a segunda tentativa — a API recusou o rerun. A rodada abaixo só tem a tentativa 1; se o githubstatus estiver limpo, vale reexecutar na mão pelo botão Re-run jobs."
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            # Vale tanto para o timeout de 20 min quanto para cancelamento
+            # manual — o texto só afirma o que job.status=cancelled prova.
+            ABERTURA="A atualização falhou e a repescagem foi cancelada antes de concluir — pelo prazo de 20 min ou por cancelamento manual. Confira na rodada abaixo se a segunda tentativa chegou a rodar."
+          elif [ "${CONC:-desconhecido}" = "desconhecido" ]; then
+            # A conclusão não pôde ser LIDA (API muda ou rodada ainda em
+            # andamento ao fim do prazo). Não dá para afirmar que falhou.
+            ABERTURA="A atualização falhou e não consegui confirmar o desfecho da segunda tentativa dentro do prazo de acompanhamento (a API não respondeu ou a rodada ainda não tinha terminado). Confira o estado real na rodada abaixo."
+          else
+            ABERTURA="A atualização falhou e a segunda tentativa também não terminou bem (conclusão: $CONC)."
+          fi
+
+          CORPO="$ABERTURA
+
+          Rodada: $RUN_URL
+
+          O que checar, nesta ordem:
+          1. githubstatus.com — se Actions ou Pages estiverem com incidente, é lá fora e passa sozinho.
+          2. O passo que falhou na rodada. Se foi o \"Set up job\", o runner não conseguiu baixar as actions: é o GitHub, não o nosso código.
+          3. Se foi o \"Rodar o atualizador\", aí sim é nosso: Yahoo fora do ar, secret faltando ou erro no atualizar.py.
+
+          Enquanto isso a página segue no ar com o último dado bom, e acende o selo âmbar de atrasado depois de 25 min de pregão sem dado novo."
+
+          # Deduplicação + janela de silêncio: numa falha PERMANENTE (secret
+          # apagado, bug no atualizar.py) este workflow roda a cada 15 min o
+          # dia inteiro. Sem a janela seriam dezenas de comentários (e de
+          # e-mails) por dia na mesma issue — ruído que enterra o aviso real.
+          JANELA=7200   # 2 horas de silêncio entre avisos na mesma issue
+
+          ABERTA=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+                     --label "$ETIQUETA" --limit 1 --json number \
+                     --jq '.[0].number // empty' 2>/dev/null || echo "")
+
+          if [ -z "$ABERTA" ]; then
+            echo "Abrindo issue nova."
+            # Plano B sem etiqueta: se o label create lá em cima levou 502, o
+            # create com --label morre ("label not found") e o PRIMEIRO aviso
+            # da vida do repo se perderia. Aviso sem etiqueta > aviso nenhum.
+            gh issue create --title "$TITULO" --label "$ETIQUETA" \
+              --body "$CORPO" --repo "$GITHUB_REPOSITORY" \
+            || gh issue create --title "$TITULO" \
+                 --body "$CORPO" --repo "$GITHUB_REPOSITORY"
+            exit 0
+          fi
+
+          # Momento do último aviso = criação da issue ou o comentário mais
+          # recente. Se não der para ler (API mal), avisa mesmo assim: perder
+          # aviso é pior do que repetir um.
+          ULT=$(gh issue view "$ABERTA" --repo "$GITHUB_REPOSITORY" \
+                  --json createdAt,comments \
+                  --jq '[.createdAt] + [.comments[].createdAt] | last' 2>/dev/null || echo "")
+          PODE=1
+          DECORRIDO=0
+          if [ -n "$ULT" ]; then
+            ULT_S=$(date -u -d "$ULT" +%s 2>/dev/null || echo 0)
+            DECORRIDO=$(( $(date -u +%s) - ULT_S ))
+            if [ "$DECORRIDO" -lt "$JANELA" ]; then PODE=""; fi
+          fi
+          if [ -n "$PODE" ]; then
+            echo "Comentando na issue #$ABERTA."
+            gh issue comment "$ABERTA" --body "$CORPO" --repo "$GITHUB_REPOSITORY"
+          else
+            echo "Issue #$ABERTA já avisada há ${DECORRIDO}s (janela de ${JANELA}s). Silêncio."
+          fi
