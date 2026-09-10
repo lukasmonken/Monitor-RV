@@ -56,6 +56,9 @@ ticker,empresa,peso,mercado
 QQQM,Invesco NASDAQ 100,36,US
 ```
 
+A coluna `mercado` aceita `US` (bolsa dos EUA, em US$), `CRIPTO` (criptoativo,
+cotado em US$ 24/7 e convertido para R$) e vazio/`BR` (B3, em R$).
+
 **4. `MONITOR_SETORES`** — o mapa ticker→setor da "exposição por setor". Abra o
 arquivo **`setores.local.csv`** (também só na sua máquina), **copie tudo** e cole
 aqui. Sem este secret o painel funciona igual, só a quebra por setor fica vazia.

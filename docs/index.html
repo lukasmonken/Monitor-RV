@@ -100,10 +100,10 @@
     0%  {background:rgba(18,216,178,.26); box-shadow:0 0 0 4px rgba(18,216,178,.26)}
     100%{background:transparent;          box-shadow:0 0 0 4px rgba(18,216,178,0)}
   }
-  .pval.novo, .pval2.novo{border-radius:5px; animation:fisgada 1.6s ease-out 1}
+  .pval.novo{border-radius:5px; animation:fisgada 1.6s ease-out 1}
   /* Quem pediu menos movimento no sistema não recebe nenhuma animação. */
   @media (prefers-reduced-motion:reduce){
-    .mkt i, .p.viva, .tile.viva, .pval.novo, .pval2.novo{animation:none !important}
+    .mkt i, .p.viva, .tile.viva, .pval.novo{animation:none !important}
   }
 
   .controls{
@@ -158,13 +158,8 @@
   .cart .peri .plab{font-size:9px; text-transform:uppercase; letter-spacing:.2px; color:var(--muted); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .cart .peri .p.cmp .plab{color:var(--accent-d)}
   .cart .peri .pval{font-size:14px; font-weight:700; font-variant-numeric:tabular-nums}
-  /* Bitcoin: 3 caixas, cada uma com valorização em US$ (cima) e R$ (baixo) */
+  /* Carteira sem benchmark (sem índice comparável): 3 caixas em vez de 5 */
   .cart .peri.peri3{grid-template-columns:repeat(3,1fr)}
-  .cart .peri .p.dual .pval{font-size:13.5px}
-  .p.dual .pval2, .tile.dual .pval2{font-weight:700; font-variant-numeric:tabular-nums; margin-top:3px}
-  .cart .peri .p.dual .pval2{font-size:13px}
-  .tile.dual .pval2{font-size:14px}
-  .cur{color:var(--muted); font-weight:600; font-size:.72em; margin-right:2px; letter-spacing:.2px}
   /* Destaques (maiores altas/baixas do mês) */
   .cart .dcols{display:grid; grid-template-columns:1fr 1fr; gap:16px}
   .cart .dhead{font-size:10px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:7px}
@@ -179,6 +174,8 @@
   .setlist .sn{color:var(--axis)} .setlist .sp{color:var(--txt); font-weight:600; font-variant-numeric:tabular-nums}
   .setlist .sbar{height:6px; background:var(--panel2); border-radius:4px; overflow:hidden}
   .setlist .sbar span{display:block; height:100%; border-radius:4px}
+  /* 2ª linha da célula de preço: cotação na moeda de origem (cripto em US$) */
+  .price .orig{display:block; color:var(--muted); font-size:10.5px; font-weight:500; margin-top:2px}
   .setpanel{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin-bottom:16px}
   .setpanel-h{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:13px}
 
@@ -327,8 +324,13 @@
     if(Math.abs(n) < 0.005) n = 0;            // arredonda ínfimos e evita "-0,00%"
     return n.toFixed(2).replace(".",",")+"%";
   };
-  const fmtPreco = (p, moeda) => p==null ? "—"
-    : (moeda==="USD" ? "US$ " : "R$ ") + p.toFixed(2).replace(".",",");
+  // Separador de milhar: sem ele um ativo de preço alto (cripto) sai "R$ 395371,25".
+  const fmtPreco = (p, moeda) => {
+    if(p==null) return "—";
+    const [inteiro, dec] = Math.abs(p).toFixed(2).split(".");
+    return (p<0?"-":"") + (moeda==="USD" ? "US$ " : "R$ ")
+         + inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + dec;
+  };
   const fmtPeso = w => (w==null?0:w).toFixed(w%1===0?0:1).replace(".",",")+"%";
   // "na" (neutro) p/ nulo OU valor que arredonda a 0,00% — evita verde/vermelho no ~zero.
   const classe = r => (r==null || Math.abs(r*100) < 0.005) ? "na" : (r>0 ? "up" : "down");
@@ -341,11 +343,8 @@
     c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const moedaTag = c => (c.ativos && c.ativos.some(a=>a.moeda==="USD"))
     ? ' <span class="moeda-tag" title="Ativos cotados em dólar">USD</span>' : '';
-  const fmtMil = (v, pre) => v==null ? "" : pre + " " + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  // Canto superior direito do card: preço US$ · R$ (Bitcoin) ou nº de ativos (carteiras).
-  const topInfo = c => (c.tipo==="cripto" && c.extra)
-    ? `${fmtMil(c.extra.preco_usd,"US$")} · ${fmtMil(c.extra.preco_brl,"R$")}`
-    : `${c.n_ativos} ativos`;
+  // Canto superior direito do card: nº de ativos da carteira.
+  const topInfo = c => `${c.n_ativos} ativos`;
 
   // Alpha no mês = quanto a carteira rendeu acima (ou abaixo) do benchmark no mês.
   const alphaMes = c => {
@@ -360,20 +359,14 @@
     const r=c.retornos;
     const cel = (lab,val,cmp,viva)=>`<div class="${kls}${cmp?' cmp':''}${viva?' viva':''}"><div class="plab">${lab}</div>`
       + `<div class="pval ${classe(val)}">${fmtPct(val)}</div></div>`;
-    if(c.tipo === "cripto"){   // Bitcoin: valorização em US$ (principal) e R$ (abaixo)
-      const rb = (c.extra && c.extra.ret_brl) || {};
-      const dual = (lab, u, b, viva) => `<div class="${kls} dual${viva?' viva':''}"><div class="plab">${lab}</div>`
-        + `<div class="pval ${classe(u)}"><span class="cur">US$</span>${fmtPct(u)}</div>`
-        + `<div class="pval2 ${classe(b)}"><span class="cur">R$</span>${fmtPct(b)}</div></div>`;
-      return dual(D.periodos.dia, r.dia, rb.dia, true)
-           + dual(D.periodos.semana, r.semana, rb.semana)
-           + dual(D.periodos.mes, r.mes, rb.mes);
-    }
-    const b=c.benchmark, bm = b ? b.retornos.mes : null;
-    return cel(D.periodos.dia, r.dia, false, true)
-         + cel(D.periodos.semana, r.semana)
-         + cel(D.periodos.mes, r.mes)
-         + cel(b ? b.label : "Bench", bm, true)
+    const janelas = cel(D.periodos.dia, r.dia, false, true)
+                  + cel(D.periodos.semana, r.semana)
+                  + cel(D.periodos.mes, r.mes);
+    // Carteira sem índice comparável (ex.: Alternativos) mostra só as três
+    // janelas — duas caixas com "—" fingiriam uma comparação que não existe.
+    if(!c.benchmark) return janelas;
+    return janelas
+         + cel(c.benchmark.label, c.benchmark.retornos.mes, true)
          + cel("Alpha", alphaMes(c), true);
   }
 
@@ -409,7 +402,7 @@
   const estado = { carteira: "__home__", ordenar: "peso", versao: "base", exibir: "desempenho", destaquePeriodo: "mes" };
 
   // Famílias de carteiras (para o toggle Padrão / PRO / Todas).
-  const FAMILIA_ORDEM = ["Crescimento", "Renda", "FIIs", "Internacional"];
+  const FAMILIA_ORDEM = ["Crescimento", "Renda", "FIIs", "Internacional", "Alternativos"];
   const ehPro = c => /\bPRO\b/i.test(c.nome);
   // Família = nome sem o prefixo "Academy" e sem o sufixo "PRO" (ex.: "Crescimento").
   const familia = c => c.nome.replace(/^Academy\s+/i, "").replace(/\s*PRO\s*$/i, "").trim();
@@ -723,7 +716,7 @@
   function acenderMudancas(antes){
     document.querySelectorAll("#view .viva").forEach((box, k)=>{
       if(antes[k] === box.textContent) return;      // esse número ficou parado
-      box.querySelectorAll(".pval, .pval2").forEach(v=>{
+      box.querySelectorAll(".pval").forEach(v=>{
         v.classList.remove("novo");
         void v.offsetWidth;                          // reinicia a animação
         v.classList.add("novo");
@@ -749,7 +742,7 @@
         const antes = fotoVivas();
         const tab = document.querySelector("#view .tablewrap");
         const rolagem = tab ? tab.scrollTop : 0;
-        D = novo;
+        trocarDados(novo);
         render();
         const tab2 = document.querySelector("#view .tablewrap");
         if(tab2) tab2.scrollTop = rolagem;           // não joga a tabela pro topo
@@ -784,18 +777,8 @@
     if(location.protocol.indexOf("http") === 0) agendarSync();
     renderMacro();
 
-    const sel = el("selCarteira");
-    sel.innerHTML = "";
-    const oHome = document.createElement("option");
-    oHome.value = "__home__"; oHome.textContent = "◆  Visão geral (todas)";
-    sel.appendChild(oHome);
-    D.carteiras.forEach((c,i)=>{
-      const o = document.createElement("option");
-      o.value = String(i); o.textContent = c.nome;
-      sel.appendChild(o);
-    });
-    sel.value = estado.carteira;
-    sel.onchange = ()=>{ estado.carteira = sel.value; render(); };
+    montarSeletor();
+    el("selCarteira").onchange = ()=>{ estado.carteira = el("selCarteira").value; render(); };
 
     const seg = el("segOrdenar");
     seg.querySelectorAll("button").forEach(b=>{
@@ -833,6 +816,38 @@
     render();
   }
 
+  // O <select> lista as carteiras pelo ÍNDICE delas em D.carteiras. Por isso ele
+  // precisa ser remontado toda vez que D troca — e não só no login.
+  function montarSeletor(){
+    const sel = el("selCarteira");
+    sel.innerHTML = "";
+    const oHome = document.createElement("option");
+    oHome.value = "__home__"; oHome.textContent = "◆  Visão geral (todas)";
+    sel.appendChild(oHome);
+    D.carteiras.forEach((c,i)=>{
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = c.nome;
+      sel.appendChild(o);
+    });
+    sel.value = estado.carteira;
+  }
+
+  // Troca o pacote de dados preservando a carteira aberta PELO NOME. Enquanto a
+  // lista de carteiras nunca mudava de tamanho, guardar o índice bastava; assim
+  // que entra (ou sai) uma carteira, o índice guardado passa a apontar para a
+  // vizinha e quem estava com a aba aberta veria outra carteira sem perceber —
+  // o título muda, mas ninguém está olhando para o título.
+  function trocarDados(novo){
+    const abertaAntes = estado.carteira === "__home__"
+      ? null : (D.carteiras[+estado.carteira] || {}).nome;
+    D = novo;
+    if(abertaAntes != null){
+      const k = D.carteiras.findIndex(c => c.nome === abertaAntes);
+      estado.carteira = k < 0 ? "__home__" : String(k);   // carteira saiu do ar: volta pra visão geral
+    }
+    montarSeletor();
+  }
+
   function render(){
     const home = estado.carteira === "__home__";
     el("fieldOrdenar").style.display = home ? "none" : "flex";
@@ -845,12 +860,13 @@
   // Carteiras visíveis no dashboard conforme o toggle Versão (com ordem por família).
   function carteirasVisiveis(){
     let lista = D.carteiras.map((c,i)=>({c,i}));
-    const cripto = x => x.c.tipo === "cripto";  // Bitcoin: só aparece em "Todas"
     if(estado.versao === "base"){
-      lista = lista.filter(x => !ehPro(x.c) && !cripto(x));
+      lista = lista.filter(x => !ehPro(x.c));
     } else if(estado.versao === "pro"){
+      // Uma família por card: a PRO quando existe, senão a padrão. Família só
+      // PRO (Alternativos) aparece aqui e em "Todas", e some em "Padrão".
       const fam = {};
-      lista.filter(x => !cripto(x)).forEach(x => {
+      lista.forEach(x => {
         const f = familia(x.c); (fam[f] = fam[f] || {});
         if(ehPro(x.c)) fam[f].pro = x; else fam[f].base = x;
       });
@@ -875,7 +891,7 @@
     </div>`).join("");
   }
   function renderSetores(vis){
-    const cards = vis.filter(({c}) => c.tipo !== "cripto").map(({c,i})=>
+    const cards = vis.map(({c,i})=>
       `<div class="cart" onclick="__abrir(${i})">
         <div class="top"><span class="topname"><span class="nome">${esc(c.nome)}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
         <div class="setlist">${barrasSetor(c.setores)}</div>
@@ -892,7 +908,7 @@
       `<div class="cart" onclick="__abrir(${i})">
         <div class="top"><span class="topname"><span class="nome">${esc(c.nome)}</span>${moedaTag(c)}</span><span class="n">${topInfo(c)}</span></div>
         <div class="sparkbox">${sparkline(c.spark, 320, 40) || '<span class="n">sem histórico</span>'}</div>
-        <div class="peri${c.tipo==='cripto'?' peri3':''}">${caixas(c, "p")}</div>
+        <div class="peri${c.benchmark?'':' peri3'}">${caixas(c, "p")}</div>
       </div>`
     ).join("");
     el("view").innerHTML = `<div class="grid">${cards}</div>`;
@@ -901,7 +917,7 @@
   // Destaques: maiores altas e maiores baixas do MÊS de cada carteira.
   function renderDestaques(vis){
     const p = estado.destaquePeriodo || "mes";
-    const cards = vis.filter(({c}) => c.tipo !== "cripto").map(({c,i})=>{
+    const cards = vis.map(({c,i})=>{
       const comDado = c.ativos.filter(a=>a.retornos[p]!=null);
       const altas = comDado.filter(a=>a.retornos[p]*100 >= 0.005)
                            .sort((a,b)=>b.retornos[p] - a.retornos[p]).slice(0, 3);
@@ -961,7 +977,8 @@
         <td class="lft"><span class="tk">${esc(a.ticker)}</span><br><span class="nm">${esc(a.empresa||"")}${a.setor?" · "+esc(a.setor):""}${tagMoeda}</span></td>
         <td class="lft">${sparkline(a.spark, 92, 26)}</td>
         <td class="peso${col('peso')}">${fmtPeso(a.peso)}</td>
-        <td class="price">${fmtPreco(a.preco, a.moeda)}</td>
+        <td class="price">${fmtPreco(a.preco, a.moeda)}${a.preco_orig!=null
+            ? `<span class="orig">${fmtPreco(a.preco_orig, a.moeda_orig)}</span>` : ""}</td>
         ${cell('dia')}${cell('semana')}${cell('mes')}
       </tr>`;
     }).join("");

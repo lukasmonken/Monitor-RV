@@ -6,6 +6,9 @@ Monitor de Carteiras — atualizador de dados (VAROS)
 
 O que este script faz:
   1. Lê as carteiras na pasta ./carteiras (um CSV por carteira: ticker, empresa, peso).
+     A coluna opcional "mercado" diz onde o ativo negocia: vazio/BR = B3 (em R$),
+     US = bolsa dos EUA (em US$), CRIPTO = criptoativo (cotado em US$ 24/7 e
+     convertido para R$ pelo câmbio do dia).
   2. Consulta o Yahoo Finance o preço de cada ação (cotação com ~15 min de atraso).
   3. Calcula a variação de cada ação e de cada carteira (ponderada pelos pesos)
      em três janelas: DIA (vs. pregão anterior), SEMANA (7 dias) e MÊS (30 dias).
@@ -91,12 +94,19 @@ DIAS_ATRAS = {
 # Quantos fechamentos guardar para o mini-gráfico (sparkline).
 PONTOS_SPARKLINE = 44  # ~2 meses de pregões
 
+# Câmbio no Yahoo. Baixado em TODA rodada: é ele que converte para R$ os ativos
+# com mercado "CRIPTO" (cotados em US$). Não confundir com o dólar do card macro,
+# que vem da série 1 do Bacen (cotação oficial) e é outro número.
+SIM_DOLAR = "USDBRL=X"
+
 # Benchmark de cada carteira: (rótulo exibido, símbolo no Yahoo).
 # Os índices da B3 (SMLL/IDIV/IFIX) não têm histórico no Yahoo, então usamos os
 # ETFs que os replicam como proxy (retorno praticamente igual ao do índice).
 #   SMAL11 → Small Caps (SMLL) · DIVO11 → Dividendos (IDIV) · XFIX11 → IFIX
 #   SPY    → S&P 500 (ETF mais líquido do mundo)
-# A chave é o NOME da carteira (arquivo .csv). Sem entrada aqui = sem benchmark.
+# A chave é o NOME da carteira (arquivo .csv). Sem entrada aqui = sem benchmark:
+# a carteira aparece com três caixas (Dia/Semana/30 dias) em vez de cinco, em vez
+# de exibir "Bench —" e "Alpha —". É o caso de carteira sem índice comparável.
 BENCHMARKS = {
     "Crescimento":       ("SMLL",    "SMAL11.SA"),
     "Crescimento PRO":   ("SMLL",    "SMAL11.SA"),
@@ -187,7 +197,8 @@ def _parse_carteira(linhas_brutas: list[str]) -> list[dict]:
             except ValueError:
                 peso = None
         # mercado: "US" = ativo em bolsa dos EUA (sem .SA, cotado em US$);
-        # qualquer outra coisa (ou vazio) = B3, em R$.
+        # "CRIPTO" = criptoativo (par contra o dólar, negocia todo dia, entra na
+        # carteira convertido para R$); qualquer outra coisa (ou vazio) = B3, em R$.
         mercado = "BR"
         if idx_merc >= 0 and len(campos) > idx_merc and campos[idx_merc]:
             mercado = campos[idx_merc].upper()
@@ -301,12 +312,28 @@ SETORES = carregar_setores()
 
 def simbolo_yahoo(ticker: str, mercado: str) -> str:
     """Converte o ticker no símbolo do Yahoo conforme o mercado.
-    US -> como está (ex.: QQQM, cotado em US$); BR -> acrescenta .SA (ex.: PETR4.SA)."""
+    US -> como está (ex.: QQQM, cotado em US$); CRIPTO -> par contra o dólar
+    (ex.: BTC -> BTC-USD); BR -> acrescenta .SA (ex.: PETR4.SA)."""
     if "." in ticker:            # já é um símbolo completo
         return ticker
-    if (mercado or "BR").upper() == "US":
+    merc = (mercado or "BR").upper()
+    if merc == "CRIPTO":
+        return ticker if "-" in ticker else f"{ticker}-USD"
+    if merc == "US":
         return ticker
     return f"{ticker}.SA"
+
+
+def serie_em_reais(serie_usd: pd.Series, dolar: pd.Series) -> pd.Series:
+    """Converte para R$ uma série cotada em US$, pelo câmbio do MESMO dia.
+    Cripto negocia sábado e domingo e o dólar não: nos dias sem câmbio vale a
+    última cotação útil (ffill). Sem isso o fim de semana inteiro sumiria da
+    série convertida e a variação de segunda compararia com a sexta."""
+    usd = serie_usd.dropna()
+    if usd.empty:
+        return usd
+    cambio = dolar.reindex(usd.index).ffill()
+    return (usd * cambio).dropna()
 
 
 def baixar_precos(simbolos: list[str]) -> pd.DataFrame:
@@ -387,7 +414,11 @@ def variacoes_carteira(ativos: list[dict], por_ticker: dict,
     cols = [a["ticker"] for a in ativos if a["ticker"] in close.columns]
     spark: list[float] = []
     if cols:
-        janela = close[cols].dropna(how="all").iloc[-PONTOS_SPARKLINE:]
+        # ffill ANTES de cortar a janela: num dia em que só parte dos ativos
+        # negocia (cripto no fim de semana, feriado de um mercado só), quem ficou
+        # parado carrega o último preço em vez de sair da conta. Sem isso a linha
+        # do índice pulava para "só quem negociou hoje" e voltava no dia seguinte.
+        janela = close[cols].dropna(how="all").ffill().iloc[-PONTOS_SPARKLINE:]
         base = janela.apply(lambda c: c.dropna().iloc[0] if c.notna().any() else pd.NA)
         rel = janela.divide(base)  # cada coluna vira 1.0 no início
         pesos = pd.Series({a["ticker"]: (a["peso"] or 0.0)
@@ -482,6 +513,31 @@ def buscar_setores_etfs(etf_map: dict) -> dict:
     return out
 
 
+def _sem_ruido_cripto(carteira: dict, tickers_cripto: set) -> dict:
+    """Cópia da carteira sem os números que mudam 24 horas por dia por causa da
+    cripto — usada SÓ para calcular o .datahash, nunca no que vai para a página.
+
+    O .datahash existe para o robô não commitar quando nada mudou de verdade.
+    Cripto negocia sábado, domingo e madrugada: deixá-la no hash faria commit em
+    toda rodada. Tiramos então os NÚMEROS do ativo cripto e o agregado da
+    carteira (que depende dele) — mas composição, pesos, setores e os ativos da
+    B3 CONTINUAM no hash. Essa parte é essencial: a versão antiga tirava o card
+    inteiro, e com o Bitcoin virando carteira de verdade isso significaria que um
+    rebalanceamento que só mexesse nela jamais dispararia a regravação.
+    Carteira sem cripto sai daqui intacta."""
+    ativos = carteira.get("ativos", [])
+    if not any(a.get("ticker") in tickers_cripto for a in ativos):
+        return carteira
+    VOLATEIS = ("preco", "retornos", "spark", "preco_orig", "moeda_orig")
+    copia = {k: v for k, v in carteira.items() if k not in ("retornos", "spark")}
+    copia["ativos"] = [
+        {k: v for k, v in a.items() if k not in VOLATEIS}
+        if a.get("ticker") in tickers_cripto else a
+        for a in ativos
+    ]
+    return copia
+
+
 # --------------------------------------------------------------------------- #
 # 5) Orquestração
 # --------------------------------------------------------------------------- #
@@ -521,26 +577,86 @@ def main() -> None:
 
     mapa_yahoo: dict[str, str] = {}
     moeda_por_ticker: dict[str, str] = {}
+    mercado_por_ticker: dict[str, str] = {}
     for ativos in carteiras.values():
         for a in ativos:
-            mapa_yahoo[a["ticker"]] = simbolo_yahoo(a["ticker"], a.get("mercado", "BR"))
-            moeda_por_ticker[a["ticker"]] = "USD" if (a.get("mercado", "BR").upper() == "US") else "BRL"
+            merc = (a.get("mercado") or "BR").upper()
+            mapa_yahoo[a["ticker"]] = simbolo_yahoo(a["ticker"], merc)
+            mercado_por_ticker[a["ticker"]] = merc
+            # A cripto é COTADA em US$ mas entra na carteira já convertida em R$
+            # (serie_em_reais), então para a página ela é um ativo em R$ — é isso
+            # que mantém o agregado da carteira numa moeda só.
+            moeda_por_ticker[a["ticker"]] = "USD" if merc == "US" else "BRL"
     tickers = sorted(mapa_yahoo)
+    tickers_cripto = {t for t, m in mercado_por_ticker.items() if m == "CRIPTO"}
 
     # Símbolos dos benchmarks das carteiras presentes.
     bench_simbolos = {BENCHMARKS[n][1] for n in carteiras if n in BENCHMARKS}
 
-    CRIPTO_SIM = {"BTC-USD", "USDBRL=X"}  # para o card do Bitcoin (R$ e US$)
-    todos = sorted(set(mapa_yahoo.values()) | bench_simbolos | CRIPTO_SIM)
+    # O câmbio entra sempre (converte a cripto para R$), mesmo sem cripto nas
+    # carteiras: é uma coluna a mais no download, e evita rodada sem ele.
+    todos = sorted(set(mapa_yahoo.values()) | bench_simbolos | {SIM_DOLAR})
     print(f"\n[2/4] Baixando cotações de {len(tickers)} ativos "
           f"(+{len(bench_simbolos)} benchmarks) no Yahoo Finance...")
     close_sym = baixar_precos(todos)
 
     # DataFrame com uma coluna por TICKER (para os cálculos das ações/carteiras).
     close = pd.DataFrame(index=close_sym.index)
+    dolar = close_sym[SIM_DOLAR] if SIM_DOLAR in close_sym.columns else None
+    # O yfinance falha de dois jeitos: sem a coluna, ou com a coluna toda NaN.
+    # Só checar a existência deixaria o segundo caso passar calado.
+    if dolar is not None and dolar.dropna().empty:
+        dolar = None
+    preco_usd_cripto: dict[str, float] = {}   # preço na moeda de origem, só p/ exibir
     for tk, sim in mapa_yahoo.items():
-        if sim in close_sym.columns:
-            close[tk] = close_sym[sim]
+        if sim not in close_sym.columns:
+            continue
+        serie = close_sym[sim]
+        if tk in tickers_cripto:
+            if dolar is None:
+                # Sem câmbio não há como converter, e publicar o retorno em US$
+                # dentro de uma carteira em R$ seria mentira: o ativo fica sem
+                # dado (a página mostra "—") e a carteira normaliza os pesos
+                # sobre o que sobrou. Preferimos o buraco visível ao número torto.
+                print(f"  ! Sem {SIM_DOLAR} no Yahoo: {tk} fica sem cotação nesta rodada.")
+                if os.environ.get("GITHUB_ACTIONS") == "true":
+                    print(f"::warning title=Sem câmbio para a cripto::O Yahoo não "
+                          f"devolveu {SIM_DOLAR}; {tk} ficou sem cotação nesta rodada.")
+                continue
+            serie = serie_em_reais(serie, dolar)
+        close[tk] = serie
+
+    # Calendário do PREGÃO da B3: as datas em que os ativos em R$ tiveram barra.
+    # Cripto e ETF dos EUA ficam de fora — negociam em dias sem pregão aqui.
+    cols_b3 = [t for t in close.columns
+               if moeda_por_ticker.get(t) == "BRL" and t not in tickers_cripto]
+    datas_b3 = close[cols_b3].dropna(how="all").index if cols_b3 else close.index
+
+    # A cripto negocia 7 dias por semana; a B3, 5. Se cada ativo ficasse no seu
+    # próprio calendário, a caixa "Dia" da carteira somaria DOIS intervalos: numa
+    # segunda-feira o BTC compararia com domingo e a ação com sexta. Medido no
+    # histórico: em 15/06/2026 isso publicaria "Dia -0,90%" (vermelho) numa
+    # carteira que tinha SUBIDO 0,80% desde o fechamento anterior da B3 — sinal
+    # invertido, e não foi caso único. Reamostramos então a cripto no calendário
+    # do pregão, pegando o último preço disponível em cada data. O preço segue
+    # sendo o mais recente daquela data; o que muda é a base de comparação, que
+    # passa a ser a mesma da ação — exatamente o que o rodapé da página promete
+    # ("Dia = vs. o pregão anterior").
+    if len(datas_b3):
+        for tk in tickers_cripto:
+            if tk in close.columns:
+                close[tk] = (close[tk].reindex(datas_b3, method="ffill")
+                                      .reindex(close.index))
+
+    # Preço na moeda de origem (US$), lido na MESMA data do preço em R$ — senão o
+    # card mostraria duas cotações de dias diferentes, uma embaixo da outra.
+    for tk in tickers_cripto:
+        serie_brl = close[tk].dropna() if tk in close.columns else None
+        if serie_brl is None or serie_brl.empty:
+            continue
+        origem = close_sym[mapa_yahoo[tk]].asof(serie_brl.index[-1])
+        if pd.notna(origem):
+            preco_usd_cripto[tk] = round(float(origem), 2)
 
     # Variações de cada benchmark (uma vez por símbolo).
     bench_ret: dict[str, dict] = {}
@@ -574,11 +690,10 @@ def main() -> None:
     print("  Buscando DI (CDI) e IPCA no Banco Central...")
     macro = puxar_macro()
 
-    # Data do último PREGÃO da B3 (ações/FIIs em R$). Ignora cripto/câmbio/ETF dos
-    # EUA, que negociam em dias sem pregão na B3 e adiantariam a data.
-    cols_b3 = [t for t in close.columns if moeda_por_ticker.get(t) == "BRL"]
-    base_datas = close[cols_b3].dropna(how="all") if cols_b3 else close_sym
-    data_ref = base_datas.index[-1].strftime("%d/%m/%Y") if not base_datas.empty else None
+    # Data do último PREGÃO da B3 — o calendário montado lá em cima, quando a
+    # cripto foi reamostrada. Sem essa exclusão a barra de sábado da cripto
+    # empurraria a "data do pregão" para o fim de semana.
+    data_ref = datas_b3[-1].strftime("%d/%m/%Y") if len(datas_b3) else None
     saida = {
         "atualizado_em": datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M"),
         "data_pregao": data_ref,
@@ -592,7 +707,7 @@ def main() -> None:
         lista_ativos = []
         for a in ativos:
             d = por_ticker.get(a["ticker"], {})
-            lista_ativos.append({
+            item = {
                 "ticker": a["ticker"],
                 "empresa": a["empresa"],
                 "setor": (max(setores_etf[a["ticker"]], key=setores_etf[a["ticker"]].get)
@@ -603,7 +718,13 @@ def main() -> None:
                 "preco": d.get("preco"),
                 "retornos": d.get("retornos", {p: None for p in PERIODOS}),
                 "spark": d.get("spark", []),
-            })
+            }
+            # A cripto aparece em R$ (é a moeda da carteira), mas o preço que o
+            # mundo cita é o de origem, em US$: vai junto, como segunda linha.
+            if a["ticker"] in preco_usd_cripto:
+                item["preco_orig"] = preco_usd_cripto[a["ticker"]]
+                item["moeda_orig"] = "USD"
+            lista_ativos.append(item)
 
         # Exposição por setor: cada ativo distribui seu peso entre seus setores.
         # Ação/FII => um setor (SETORES). ETF => vários setores (setores_etf).
@@ -636,37 +757,6 @@ def main() -> None:
             "ativos": lista_ativos,
         })
 
-    # ---- Card especial do Bitcoin (ativo único, mostrado em R$ e US$) ----
-    if "BTC-USD" in close_sym.columns and "USDBRL=X" in close_sym.columns:
-        btc_usd_serie = close_sym["BTC-USD"].dropna()
-        ret_usd, preco_usd, spark_usd = variacoes_acao(btc_usd_serie)
-        # BTC em R$ no MESMO calendário do BTC-USD: o dólar do fim de semana usa a
-        # última cotação útil (ffill). Sem isso, "Dia"/preço em US$ e R$ divergiriam
-        # (BTC negocia sáb/dom, o dólar não).
-        usdbrl_ff = close_sym["USDBRL=X"].reindex(btc_usd_serie.index).ffill()
-        btc_brl_serie = (btc_usd_serie * usdbrl_ff).dropna()
-        ret_brl, preco_brl, _ = variacoes_acao(btc_brl_serie)
-        saida["carteiras"].append({
-            "nome": "Bitcoin",
-            "tipo": "cripto",
-            "n_ativos": 1,
-            "soma_peso": 100.0,
-            "retornos": ret_usd,           # valorização em US$ (principal)
-            "benchmark": None,
-            "setores": [],
-            "spark": spark_usd,
-            "extra": {                     # valorização em R$ + preço em US$
-                "ret_brl": ret_brl,
-                "preco_usd": preco_usd,
-                "preco_brl": preco_brl,
-            },
-            "ativos": [{
-                "ticker": "BTC", "empresa": "Bitcoin", "setor": "", "peso": 100.0,
-                "moeda": "USD", "preco": preco_usd, "retornos": ret_usd, "spark": spark_usd,
-            }],
-        })
-        print(f"  Bitcoin: US$ {preco_usd} (R$ {preco_brl})")
-
     print("\n[4/4] Cifrando e gravando dados.enc.js...")
     os.makedirs(PASTA_SITE, exist_ok=True)
 
@@ -676,8 +766,8 @@ def main() -> None:
     # mudança real (mercado fechado, dispatch manual). Guardamos um hash do
     # conteúdo em .datahash (na raiz, fora do site) para comparar entre execuções.
     dados_sem_hora = {k: v for k, v in saida.items() if k not in ("atualizado_em", "macro")}
-    # tira o card cripto do hash: BTC/USDBRL variam 24/7 e disparariam commit sempre.
-    dados_sem_hora["carteiras"] = [c for c in saida["carteiras"] if c.get("tipo") != "cripto"]
+    dados_sem_hora["carteiras"] = [_sem_ruido_cripto(c, tickers_cripto)
+                                   for c in saida["carteiras"]]
     hash_atual = hashlib.sha256(
         json.dumps(dados_sem_hora, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()

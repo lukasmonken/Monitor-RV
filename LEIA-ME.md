@@ -81,6 +81,7 @@ painel (ex.: `Renda.csv` → "Renda").
 ticker,empresa,peso,mercado
 BBDC4,Bradesco,14.29
 QQQM,Invesco NASDAQ 100,36,US
+BTC,Bitcoin,10,CRIPTO
 ```
 
 - **ticker** — código do ativo (sem `.SA`; o script adiciona para papéis da B3).
@@ -89,10 +90,14 @@ QQQM,Invesco NASDAQ 100,36,US
   **ponderada**. A soma não precisa dar 100 (normaliza sozinho). Sem a coluna =
   pesos iguais.
 - **mercado** — opcional. `US` = ativo em bolsa dos EUA (cotado em **US$**, sem
-  `.SA`); vazio ou `BR` = B3, em **R$**. As carteiras Internacionais usam isso.
+  `.SA`); `CRIPTO` = criptoativo (o script busca o par contra o dólar — `BTC` vira
+  `BTC-USD` — e **converte para R$** pelo câmbio do dia, para o agregado da
+  carteira não misturar moedas); vazio ou `BR` = B3, em **R$**.
 
 **Benchmark de cada carteira:** definido no dicionário `BENCHMARKS` no topo do
-`atualizar.py`, pelo **nome da carteira**. Hoje:
+`atualizar.py`, pelo **nome da carteira**. Carteira **sem** entrada lá aparece com
+três caixas (Dia / Semana / 30 dias) em vez de cinco — é o caso de quem não tem
+índice comparável. Hoje:
 
 | Carteira | Benchmark | Como é medido (ETF que replica) |
 |----------|-----------|----------------------------------|
@@ -131,6 +136,9 @@ https do GitHub Pages é o ideal; localmente o Chrome abre pelo `file://`).
   pesos**; por janela, só entram os ativos com dado naquela janela.
 - Preços do **Yahoo Finance**, fechamento **ajustado** (proventos e
   desdobramentos), atraso de ~15 min. Ativos **US$** têm a variação medida em dólar.
+  Cripto é a exceção: entra convertida em **R$**, porque divide carteira com ativo
+  da B3 e um agregado em duas moedas não significaria nada. No fim de semana, em
+  que a cripto negocia e o câmbio não, vale a última cotação útil do dólar.
 
 ## Além do desempenho
 
@@ -138,6 +146,7 @@ https do GitHub Pages é o ideal; localmente o Chrome abre pelo `file://`).
   internacionais pela composição real dos ETFs, via Yahoo).
 - **Exibir → Destaques:** maiores altas e baixas por período (hoje / semana / 30 dias).
 - **Topo:** Dólar (Bacen, série 1), CDI (série 4389) e IPCA 12m (série 13522), da API pública do Banco Central.
-- **Bitcoin** (na visão "Todas"): preço em US$ · R$ e variação nas duas moedas.
+- **Cripto dentro de carteira:** o preço aparece em R$ (moeda da carteira) com a
+  cotação de origem em US$ logo abaixo, na tabela do detalhe.
 
 Ferramenta de **acompanhamento** — não é recomendação de investimento.
