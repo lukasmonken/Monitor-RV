@@ -670,8 +670,8 @@ def main() -> None:
         for a in ats:
             if a.get("mercado", "BR").upper() == "US":
                 etf_map[a["ticker"]] = a["ticker"]
-            elif a["ticker"] == "SPXI11":
-                etf_map["SPXI11"] = "SPY"   # ETF de S&P na B3 -> setores via SPY
+            elif a["ticker"] == "SPXR11":
+                etf_map["SPXR11"] = "SPY"   # ETF de S&P na B3 -> setores via SPY
     print("  Buscando setores dos ETFs internacionais...")
     setores_etf = buscar_setores_etfs(etf_map)
 
