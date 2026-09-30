@@ -93,6 +93,12 @@ BTC,Bitcoin,10,CRIPTO
   `.SA`); `CRIPTO` = criptoativo (o script busca o par contra o dólar — `BTC` vira
   `BTC-USD` — e **converte para R$** pelo câmbio do dia, para o agregado da
   carteira não misturar moedas); vazio ou `BR` = B3, em **R$**.
+- **proxy** — opcional, só para a **exposição por setor**. Símbolo do Yahoo de um
+  ETF que replica o **mesmo índice**, de onde tirar a composição setorial quando o
+  Yahoo não a tem para o próprio ativo (sem proxy, a fatia dele some da quebra por
+  setor). Ex.: `SPXR11,S&P 500,10,BR,SPY`. Não mexe em preço nem em retorno.
+  Fica no CSV/secret, e não no código, para o ticker não aparecer no repositório
+  público.
 
 **Benchmark de cada carteira:** definido no dicionário `BENCHMARKS` no topo do
 `atualizar.py`, pelo **nome da carteira**. Carteira **sem** entrada lá aparece com

@@ -57,7 +57,10 @@ QQQM,Invesco NASDAQ 100,36,US
 ```
 
 A coluna `mercado` aceita `US` (bolsa dos EUA, em US$), `CRIPTO` (criptoativo,
-cotado em US$ 24/7 e convertido para R$) e vazio/`BR` (B3, em R$).
+cotado em US$ 24/7 e convertido para R$) e vazio/`BR` (B3, em R$). A coluna
+opcional `proxy` (5ª) diz de qual ETF do mesmo índice tirar a composição
+setorial quando o Yahoo não a tem para o próprio ativo (ex.: `SPY` para o ETF de
+S&P da B3) — detalhes no LEIA-ME.
 
 **4. `MONITOR_SETORES`** — o mapa ticker→setor da "exposição por setor". Abra o
 arquivo **`setores.local.csv`** (também só na sua máquina), **copie tudo** e cole

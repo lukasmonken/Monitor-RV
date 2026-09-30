@@ -8,7 +8,9 @@ O que este script faz:
   1. Lê as carteiras na pasta ./carteiras (um CSV por carteira: ticker, empresa, peso).
      A coluna opcional "mercado" diz onde o ativo negocia: vazio/BR = B3 (em R$),
      US = bolsa dos EUA (em US$), CRIPTO = criptoativo (cotado em US$ 24/7 e
-     convertido para R$ pelo câmbio do dia).
+     convertido para R$ pelo câmbio do dia). A coluna opcional "proxy" diz de
+     qual ETF (do mesmo índice) tirar a composição setorial quando o Yahoo não
+     a tem para o próprio ativo.
   2. Consulta o Yahoo Finance o preço de cada ação (cotação com ~15 min de atraso).
   3. Calcula a variação de cada ação e de cada carteira (ponderada pelos pesos)
      em três janelas: DIA (vs. pregão anterior), SEMANA (7 dias) e MÊS (30 dias).
@@ -160,12 +162,18 @@ def ler_carteira(caminho: str) -> list[dict]:
 
 def _parse_carteira(linhas_brutas: list[str]) -> list[dict]:
     """
-    Interpreta as linhas de uma carteira e devolve [{ticker, empresa, peso, mercado}].
-    Formato esperado (cabeçalho na 1ª linha):  ticker,empresa,peso[,mercado]
+    Interpreta as linhas de uma carteira e devolve
+    [{ticker, empresa, peso, mercado, proxy}].
+    Formato esperado (cabeçalho na 1ª linha):  ticker,empresa,peso[,mercado][,proxy]
     - 'empresa' é opcional; se faltar, usa o próprio ticker.
     - 'peso' é opcional; se faltar (na linha ou na carteira toda), todos ficam
       com peso igual. O peso é o percentual de alocação (a soma não precisa dar
       exatamente 100 — o cálculo normaliza sozinho).
+    - 'proxy' é opcional e só serve à exposição por setor: símbolo do Yahoo de
+      um ETF que replica o MESMO índice, de onde tirar a composição setorial
+      quando o Yahoo não a tem para o próprio ativo (ex.: ETF listado na B3).
+      Não mexe em preço nem em retorno. Fica no CSV/secret, e não aqui no
+      código, para o ticker não aparecer no repositório público.
     """
     linhas = [l for l in linhas_brutas if l.strip()]
     if not linhas:
@@ -179,6 +187,7 @@ def _parse_carteira(linhas_brutas: list[str]) -> list[dict]:
     idx_emp = cabecalho.index("empresa") if (tem_cab and "empresa" in cabecalho) else 1
     idx_peso = cabecalho.index("peso") if (tem_cab and "peso" in cabecalho) else 2
     idx_merc = cabecalho.index("mercado") if (tem_cab and "mercado" in cabecalho) else -1
+    idx_proxy = cabecalho.index("proxy") if (tem_cab and "proxy" in cabecalho) else -1
     corpo = linhas[1:] if tem_cab else linhas
 
     ativos: list[dict] = []
@@ -202,8 +211,11 @@ def _parse_carteira(linhas_brutas: list[str]) -> list[dict]:
         mercado = "BR"
         if idx_merc >= 0 and len(campos) > idx_merc and campos[idx_merc]:
             mercado = campos[idx_merc].upper()
+        proxy = ""
+        if idx_proxy >= 0 and len(campos) > idx_proxy:
+            proxy = campos[idx_proxy].upper()
         ativos.append({"ticker": ticker, "empresa": empresa,
-                       "peso": peso, "mercado": mercado})
+                       "peso": peso, "mercado": mercado, "proxy": proxy})
 
     # Se nenhum peso foi informado, distribui igualmente.
     if all(a["peso"] is None for a in ativos) and ativos:
@@ -219,7 +231,7 @@ def _parse_carteira(linhas_brutas: list[str]) -> list[dict]:
 def carteiras_do_texto(texto: str) -> dict[str, list[dict]]:
     """
     Lê as carteiras do secret MONITOR_CARTEIRAS. Formato: blocos começando com
-    '### Nome da carteira', seguidos do CSV (ticker,empresa,peso[,mercado]):
+    '### Nome da carteira', seguidos do CSV (ticker,empresa,peso[,mercado][,proxy]):
 
         ### Crescimento
         ticker,empresa,peso
@@ -491,7 +503,8 @@ def buscar_setores_etfs(etf_map: dict) -> dict:
         try:
             sw = yf.Ticker(sim).funds_data.sector_weightings
         except Exception as e:
-            print(f"  ! Sem setor do ETF {tk}: {repr(e)[:60]}")
+            via = f" (via {sim})" if sim != tk else ""
+            print(f"  ! Sem setor do ETF {tk}{via}: {repr(e)[:60]}")
             continue
         if not sw:
             continue
@@ -665,13 +678,19 @@ def main() -> None:
             bench_ret[sim] = variacoes_acao(close_sym[sim])[0]
 
     # Ponderações setoriais dos ETFs internacionais (exposição por setor real).
+    # A coluna "proxy" do CSV/secret vence sempre, em qualquer carteira: o mesmo
+    # ticker pode vir com proxy numa carteira e sem na outra, e a ordem em que
+    # as carteiras são lidas não pode decidir de onde sai o setor.
     etf_map: dict[str, str] = {}
     for ats in carteiras.values():
         for a in ats:
-            if a.get("mercado", "BR").upper() == "US":
-                etf_map[a["ticker"]] = a["ticker"]
-            elif a["ticker"] == "SPXR11":
-                etf_map["SPXR11"] = "SPY"   # ETF de S&P na B3 -> setores via SPY
+            tk = a["ticker"]
+            if a.get("proxy"):
+                etf_map[tk] = a["proxy"]
+            elif a.get("mercado", "BR").upper() == "US":
+                etf_map.setdefault(tk, tk)
+            elif tk == "SPXR11":
+                etf_map.setdefault(tk, "SPY")   # ETF de S&P na B3 -> setores via SPY
     print("  Buscando setores dos ETFs internacionais...")
     setores_etf = buscar_setores_etfs(etf_map)
 
