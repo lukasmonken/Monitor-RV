@@ -247,7 +247,9 @@ def carteiras_do_texto(texto: str) -> dict[str, list[dict]]:
     nome = None
     for linha in texto.splitlines():
         if linha.strip().startswith("###"):
-            nome = linha.strip().lstrip("#").strip()
+            # "###" sem nome encerra o bloco atual; as linhas seguintes são ignoradas
+            # até o próximo cabeçalho com nome (antes dava KeyError: '').
+            nome = linha.strip().lstrip("#").strip() or None
             if nome:
                 blocos[nome] = []
         elif nome is not None and linha.strip():
