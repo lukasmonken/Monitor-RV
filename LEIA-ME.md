@@ -79,8 +79,8 @@ painel (ex.: `Renda.csv` → "Renda").
 
 ```
 ticker,empresa,peso,mercado
-BBDC4,Bradesco,14.29
-QQQM,Invesco NASDAQ 100,36,US
+PETR4,Petrobras,20
+AAPL,Apple,30,US
 BTC,Bitcoin,10,CRIPTO
 ```
 

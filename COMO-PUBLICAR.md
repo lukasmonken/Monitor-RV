@@ -48,12 +48,12 @@ O formato é:
 ```
 ### Crescimento
 ticker,empresa,peso
-BBAS3,Banco do Brasil,16.67
+PETR4,Petrobras,20
 ...
 
 ### Internacional
 ticker,empresa,peso,mercado
-QQQM,Invesco NASDAQ 100,36,US
+AAPL,Apple,30,US
 ```
 
 A coluna `mercado` aceita `US` (bolsa dos EUA, em US$), `CRIPTO` (criptoativo,
@@ -69,9 +69,9 @@ O formato é uma linha por ativo (comentários com `#` e o cabeçalho são ignor
 
 ```
 ticker,setor
-BBAS3,Banco
-KLBN11,Celulose
-VISC11,Shoppings Centers
+PETR4,Petróleo e Gás
+ITUB4,Banco
+HGLG11,Galpões Logísticos
 ```
 
 ## Passo 3 — Ligar o site (Pages na pasta `/docs`)

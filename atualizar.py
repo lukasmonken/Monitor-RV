@@ -33,6 +33,7 @@ import base64
 import glob
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -235,12 +236,12 @@ def carteiras_do_texto(texto: str) -> dict[str, list[dict]]:
 
         ### Crescimento
         ticker,empresa,peso
-        BBAS3,Banco do Brasil,16.67
+        PETR4,Petrobras,20
         ...
 
         ### Internacional
         ticker,empresa,peso,mercado
-        QQQM,Invesco NASDAQ 100,36,US
+        AAPL,Apple,30,US
     """
     blocos: dict[str, list[str]] = {}
     nome = None
@@ -324,7 +325,7 @@ SETORES = carregar_setores()
 
 def simbolo_yahoo(ticker: str, mercado: str) -> str:
     """Converte o ticker no símbolo do Yahoo conforme o mercado.
-    US -> como está (ex.: QQQM, cotado em US$); CRIPTO -> par contra o dólar
+    US -> como está (ex.: AAPL, cotado em US$); CRIPTO -> par contra o dólar
     (ex.: BTC -> BTC-USD); BR -> acrescenta .SA (ex.: PETR4.SA)."""
     if "." in ticker:            # já é um símbolo completo
         return ticker
@@ -551,6 +552,58 @@ def _sem_ruido_cripto(carteira: dict, tickers_cripto: set) -> dict:
     return copia
 
 
+class _SemTickers:
+    """Saída (stdout/stderr) que troca os tickers das carteiras por ***."""
+
+    def __init__(self, destino, padrao: re.Pattern):
+        self._destino = destino
+        self._padrao = padrao
+
+    def write(self, texto):
+        return self._destino.write(self._padrao.sub("***", texto))
+
+    def __getattr__(self, nome):  # flush, fileno, isatty, encoding...
+        return getattr(self._destino, nome)
+
+
+def ocultar_tickers_no_log(carteiras: dict[str, list[dict]]) -> None:
+    """Mascara os tickers das carteiras (e os proxies) em TUDO o que o processo
+    escreve daqui em diante. Chamada só no GitHub Actions.
+
+    O repositório é público, e o log do Actions também: qualquer pessoa com
+    conta no GitHub o lê. Mascarar a saída inteira, e não cada print, cobre as
+    nossas mensagens ("Sem setor do ETF ...", "sem cotação para ..."), as do
+    próprio yfinance ("1 Failed download: [...]", "possibly delisted"), um
+    eventual traceback e qualquer print que alguém acrescente no futuro. Para
+    saber QUAL ativo falhou, rode o script na sua máquina: lá nada é mascarado."""
+    nomes = {a["ticker"] for ats in carteiras.values() for a in ats}
+    nomes |= {a["proxy"] for ats in carteiras.values() for a in ats if a.get("proxy")}
+    nomes.discard("")
+    if not nomes:
+        return
+    # Sem letra (acentuada inclusive), dígito ou "_" colado dos lados:
+    # "PETR4.SA" e "BTC-USD" viram "***.SA" e "***-USD", mas um ticker não come
+    # pedaço de outro maior nem de "Ações". Sensível a maiúsculas DE PROPÓSITO
+    # (ticker e yfinance já vêm em maiúsculas): o texto fixo do log está no
+    # código público, e mascarar uma palavra comum ("de", "e", "o") denunciaria
+    # o ticker. Pelo mesmo motivo, as mensagens daqui em diante evitam palavra
+    # solta em maiúsculas que possa ser ticker (ex.: "O Yahoo" -> "Yahoo").
+    alternativas = "|".join(re.escape(n) for n in sorted(nomes, key=len, reverse=True))
+    padrao = re.compile(rf"(?<!\w)(?:{alternativas})(?!\w)")
+    originais = {id(sys.stdout): "stdout", id(sys.stderr): "stderr"}
+    sys.stdout = _SemTickers(sys.stdout, padrao)
+    sys.stderr = _SemTickers(sys.stderr, padrao)
+    # Handler de logging criado ANTES daqui guardou a saída original (o yfinance
+    # cria um quando o modo debug está ligado): aponta esses para a mascarada.
+    loggers = [logging.getLogger()] + [
+        lg for lg in logging.Logger.manager.loggerDict.values()
+        if isinstance(lg, logging.Logger)]
+    for lg in loggers:
+        for h in lg.handlers:
+            if type(h) is logging.StreamHandler and id(h.stream) in originais:
+                h.setStream(getattr(sys, originais[id(h.stream)]))
+
+
 # --------------------------------------------------------------------------- #
 # 5) Orquestração
 # --------------------------------------------------------------------------- #
@@ -574,6 +627,9 @@ def main() -> None:
         print("\nNenhuma carteira encontrada. Coloque CSVs em carteiras/ "
               "(colunas: ticker,empresa,peso) e rode de novo.")
         sys.exit(1)
+    # Antes de qualquer mensagem que possa citar um ativo (ver a função).
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        ocultar_tickers_no_log(carteiras)
     if SETORES:
         print(f"  Setores: {len(SETORES)} tickers mapeados.")
     else:
@@ -584,7 +640,7 @@ def main() -> None:
         # quebra por setor vazia sem ninguém perceber (foi o que aconteceu em
         # 24/07/2026: o secret existia, mas faltava passá-lo no atualizar.yml).
         if os.environ.get("GITHUB_ACTIONS") == "true":
-            print("::warning title=Sem mapa de setores::O secret MONITOR_SETORES "
+            print("::warning title=Sem mapa de setores::Secret MONITOR_SETORES "
                   "chegou vazio. Confira se ele existe e se está listado no bloco "
                   "'env:' do .github/workflows/atualizar.yml.")
 
@@ -633,7 +689,7 @@ def main() -> None:
                 # sobre o que sobrou. Preferimos o buraco visível ao número torto.
                 print(f"  ! Sem {SIM_DOLAR} no Yahoo: {tk} fica sem cotação nesta rodada.")
                 if os.environ.get("GITHUB_ACTIONS") == "true":
-                    print(f"::warning title=Sem câmbio para a cripto::O Yahoo não "
+                    print(f"::warning title=Sem câmbio para a cripto::Yahoo não "
                           f"devolveu {SIM_DOLAR}; {tk} ficou sem cotação nesta rodada.")
                 continue
             serie = serie_em_reais(serie, dolar)
@@ -706,7 +762,7 @@ def main() -> None:
             sem_dados.append(t)
         por_ticker[t] = {"retornos": ret, "preco": preco, "spark": spark}
 
-    print("  Buscando DI (CDI) e IPCA no Banco Central...")
+    print("  Buscando juros e inflação no Banco Central...")
     macro = puxar_macro()
 
     # Data do último PREGÃO da B3 — o calendário montado lá em cima, quando a
