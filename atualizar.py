@@ -747,8 +747,6 @@ def main() -> None:
                 etf_map[tk] = a["proxy"]
             elif a.get("mercado", "BR").upper() == "US":
                 etf_map.setdefault(tk, tk)
-            elif tk == "SPXR11":
-                etf_map.setdefault(tk, "SPY")   # ETF de S&P na B3 -> setores via SPY
     print("  Buscando setores dos ETFs internacionais...")
     setores_etf = buscar_setores_etfs(etf_map)
 

@@ -96,7 +96,7 @@ BTC,Bitcoin,10,CRIPTO
 - **proxy** — opcional, só para a **exposição por setor**. Símbolo do Yahoo de um
   ETF que replica o **mesmo índice**, de onde tirar a composição setorial quando o
   Yahoo não a tem para o próprio ativo (sem proxy, a fatia dele some da quebra por
-  setor). Ex.: `SPXR11,S&P 500,10,BR,SPY`. Não mexe em preço nem em retorno.
+  setor). Ex.: `IVVB11,S&P 500,10,BR,SPY`. Não mexe em preço nem em retorno.
   Fica no CSV/secret, e não no código, para o ticker não aparecer no repositório
   público.
 
